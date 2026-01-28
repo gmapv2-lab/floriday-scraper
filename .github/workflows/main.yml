@@ -1,0 +1,53 @@
+name: Run Floriday Scraper
+
+on:
+  workflow_dispatch:   # Manual trigger only
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2️⃣ Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      # 3️⃣ Cache Playwright browsers
+      - name: Cache Playwright browsers
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # 4️⃣ Install dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # 5️⃣ Install Playwright Firefox
+      - name: Install Playwright Firefox
+        run: npx playwright install firefox
+
+      # 6️⃣ Run scraper
+      - name: Run scraper
+        env:
+          FLORIDAY_EMAIL: ${{ secrets.FLORIDAY_EMAIL }}
+          FLORIDAY_PASSWORD: ${{ secrets.FLORIDAY_PASSWORD }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          TARGET_SHEET_NAME: ${{ secrets.TARGET_SHEET_NAME }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          node scraper.js
+
+      # 7️⃣ Trigger Apps Script WebApp
+      - name: Trigger Apps Script WebApp
+        run: |
+          curl -X POST "https://script.google.com/macros/s/AKfycbyuL6Me8hEP1DReBwiUy-juvHQ-DNjXBwFjqUC3yMnRpC83eEDobckL6nhQVcZyc-Ds/exec" \
+            -d "key=A9kB73XpQzT1"
