@@ -1,0 +1,11 @@
+# environment variables (your email/password)
+.env
+
+# saved login session cookies
+floriday-auth.json
+
+# Node.js dependencies
+node_modules/
+
+# logs (optional)
+*.log

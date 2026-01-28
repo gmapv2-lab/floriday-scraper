@@ -1,0 +1,132 @@
+[
+  {
+    "name": "ARRAffinity",
+    "value": "9de785750dd420bfe8e6a4c04c0bfd4d84acb5c40ada767cadc0eca919afe8f0",
+    "domain": ".www.floriday.io",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "ARRAffinitySameSite",
+    "value": "9de785750dd420bfe8e6a4c04c0bfd4d84acb5c40ada767cadc0eca919afe8f0",
+    "domain": ".www.floriday.io",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "_vwo_uuid_v2",
+    "value": "DF7160BF788D7BB034AE972DD75FA91B9|5e3e953ddb09332f71c88eaafc11f9f0",
+    "domain": ".floriday.io",
+    "path": "/",
+    "expires": 1789564816,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_vwo_uuid",
+    "value": "DF7160BF788D7BB034AE972DD75FA91B9",
+    "domain": ".floriday.io",
+    "path": "/",
+    "expires": 1789499369,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_vwo_ds",
+    "value": "3%241757942414%3A98.10557555%3A%3A",
+    "domain": ".floriday.io",
+    "path": "/",
+    "expires": 1760534417,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_vwo_sn",
+    "value": "0%3A1",
+    "domain": ".floriday.io",
+    "path": "/",
+    "expires": 1757944218,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_vis_opt_s",
+    "value": "1%7C",
+    "domain": ".floriday.io",
+    "path": "/",
+    "expires": 1766582417,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "_vis_opt_test_cookie",
+    "value": "1",
+    "domain": ".floriday.io",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "DT",
+    "value": "DI1ksJd5PPKRJSlSDlZ_ZZqYg",
+    "domain": "idm.floriday.io",
+    "path": "/",
+    "expires": 1792502421.929278,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "ln",
+    "value": "sara@domusflowers.com",
+    "domain": "idm.floriday.io",
+    "path": "/",
+    "expires": 1789478423,
+    "httpOnly": false,
+    "secure": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "JSESSIONID",
+    "value": "BF1129B79B373393F21BCA625E5AEDB7",
+    "domain": "idm.floriday.io",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "idx",
+    "value": "eyJ6aXAiOiJERUYiLCJ2ZXIiOiIxIiwiYWxpYXMiOiJlbmNyeXB0aW9ua2V5Iiwib2lkIjoiMDBvMWR0eGRiazg2a0ZIMnAwaTciLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiZGlyIiwieHNpZCI6ImlkeEhGSnVrYk44UVotS2ZhSFBZN25EZVEifQ..WAubET5V7Ugs71MY.ae1tXjwSHm078jRzQMBOJK30n4bjJhXRb-wmWqV5M4_yrd2j51tw3ssVrVmXp-MFTD3ueMq9XdqomfzycTWgosdCaH5cBH76K3KKXtqY11WQZJq4dgjORjg_5r1Cp_ombLxNdgKSxyBbAk0sJDMIXH9j3Wd3Ht4ywOHPLIeeE_Qx55QNlDklLTnA31tOgo06wh17rVSyezMMKQNF8M8k3G-M1cCCvyYMVwxloMQ3-qWmaUofw-EHuVcFUb5jEyHqu8CcpiqbhbinlwaIQvx_XHU9_GykDD9hE1EC9QLonc7u_mASt8mlkL3kvLFntI5mnADZeYjGafj0F7BkkzOWuDfXl-3Q6Ydz3-YJHGOmYP84TvlA4hS9x2Ker_UNbalxcRp0GiOTNDOnpVPi8KkQ3713Lq-o2dJ1HkovlzFt2K88P4cwINTYwL37ceQdyjD-hRo3v_HoYleSacz-soMacHWXC94bC8tGiLbTXPJm8KJnEO8lN5Gou_JrWh3si3l-YSoBACGV2DmJy4E5HeWofKkGpuTCXUbKvDQ0e8O3sFS_Ypd0kACSLnkWtynVF7nYpj7RGWWlBMDne4V79C5m22yzdZmiOkgHjm8ZVKgPletiiXpsf1k2G2jyYbzk0humxw6KbeiKgPeauyLZTB1bVshIc6Oc8Iq3mKdqjL9yZDWjfrS32mtn_A7KuqIpTR4TVyU8NOQ_YguT7dpT69j8dAuN6fSSW8AyNnikZU8sWZiNHcDrMIL5_3IKg7ceJuH5uFyJwZMAuIVmcUB9xDiiCOCz5AX9ewxhbJ5GutS9otA_Z4M6XnAhqcfF-YOiJWCS90zQ-W2Okb7RXTxESynJymodbMueATyW3O4mBfAaEeCSboYXrQ7gRGzsX5KDBg8k9QIDHkYxOBeAum-tl7CJ2vpvqKca1NtFDjHa0q3NKg.nPEUTZn-pzzWZLlyIIZu0A",
+    "domain": "idm.floriday.io",
+    "path": "/",
+    "expires": -1,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "luf_613446966",
+    "value": "eyJ6aXAiOiJERUYiLCJ2ZXIiOiIxIiwiYWxpYXMiOiJlbmNyeXB0aW9ua2V5Iiwib2lkIjoiMDBvMWR0eGRiazg2a0ZIMnAwaTciLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiZGlyIiwidGltZXN0YW1wIjoxNzU3OTQyNDIyNTA2fQ..VCm-LLiuL_PqLbfr.EyAbUGMUP6Pe6T0VHLM_R_Fr6H4HfgYOqnM_NOrm9VKKSSYrDonMyHFt5SdEnOaTqd9o7D-Szi4iV0N5Gb24oRQ23mSyu041kjSfxFjHPtg9bNgXPnqCjUxHy1UQaRKGHRyNW0oxxBUto79Mu15u18lejXBklUe9Xzu2r_9a3jXs0u0ONnbNzFUm-J1R5GbZomfat4a_EA.owd4hbrI-wz_q_xDXLxftQ",
+    "domain": "idm.floriday.io",
+    "path": "/",
+    "expires": 1760534424.827007,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  }
+]
