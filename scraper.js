@@ -100,12 +100,12 @@ function formatRuntime(ms) {
       const accordions = await page.$$('div.MuiAccordion-root');
 
       for (const acc of accordions) {
-        const span = await acc.$('span');
-        if (!span) continue;
+        const button = await acc.$('button.MuiAccordionSummary-root');
+        if (!button) continue;
 
-        const spanText = await span.evaluate((el) => el.innerText.trim());
+        const buttonText = await button.evaluate((el) => el.innerText.trim());
 
-        if (spanText === spanTextToFind) {
+        if (buttonText.toLowerCase().includes(spanTextToFind.toLowerCase())) {
           const collapse = await acc.$('div.MuiCollapse-root');
 
           if (collapse) {
@@ -114,11 +114,8 @@ function formatRuntime(ms) {
             );
 
             if (isCollapsed) {
-              const button = await acc.$('button.MuiAccordionSummary-root');
-              if (button) {
-                await button.click();
-                await page.waitForTimeout(700);
-              }
+              await button.click();
+              await page.waitForTimeout(700);
             }
           }
 
@@ -131,7 +128,6 @@ function formatRuntime(ms) {
 
     // --- Apply filters ---
     const tradeAccordion = await openAccordion('Trade item');
-
     if (tradeAccordion) {
       const checkboxes = await tradeAccordion.$$('input[type="checkbox"]');
 
@@ -141,13 +137,9 @@ function formatRuntime(ms) {
         );
 
         if (labelText && labelText.includes('Cut flowers')) {
-          if (!(await checkbox.isChecked())) {
-            await checkbox.check();
-          }
+          if (!(await checkbox.isChecked())) await checkbox.check();
         } else {
-          if (await checkbox.isChecked()) {
-            await checkbox.uncheck();
-          }
+          if (await checkbox.isChecked()) await checkbox.uncheck();
         }
       }
     }
@@ -155,18 +147,14 @@ function formatRuntime(ms) {
     const allSuppliersBtn = await page.$(
       'div[data-test="supplier-filters-supplier-combo-box"] button:has-text("All")'
     );
-
     if (allSuppliersBtn) {
-      const btnText = await allSuppliersBtn.evaluate((el) => el.textContent.trim());
-      if (btnText === 'All') {
-        await allSuppliersBtn.click().catch(() => {});
-      }
+      await allSuppliersBtn.click().catch(() => {});
     }
 
     const supplyAccordion = await openAccordion('Supply');
 
     if (supplyAccordion) {
-      // --- Direct sales ---
+      // Find the label for "Direct sales" INSIDE supply accordion
       const directSalesLabel = await supplyAccordion.$('label:has-text("Direct sales")');
 
       if (directSalesLabel) {
@@ -174,48 +162,38 @@ function formatRuntime(ms) {
 
         if (input) {
           const isChecked = await input.isChecked();
-
           if (isChecked) {
             await directSalesLabel.click();
             await page.waitForTimeout(500);
-            console.log("✅ 'Direct sales' unchecked");
+            console.log("✅ 'Direct sales' checkbox was checked and is now unchecked");
           } else {
-            console.log("✅ 'Direct sales' already unchecked");
+            console.log("✅ 'Direct sales' checkbox is already unchecked");
           }
         } else {
-          console.warn("⚠️ No checkbox inside 'Direct sales'");
+          console.warn("⚠️ Could not find input inside 'Direct sales' label");
         }
       } else {
-        console.warn("⚠️ 'Direct sales' not found inside Supply");
+        console.warn("⚠️ Could not find 'Direct sales' label");
       }
 
-      // --- Supply options ---
       async function checkSupplyOption(optionText) {
         const label = await supplyAccordion.$(`label:has-text("${optionText}")`);
-
         if (label) {
           const input = await label.$('input[type="checkbox"]');
-
-          if (input) {
-            const isChecked = await input.isChecked();
-
-            if (!isChecked) {
-              await label.click();
-              await page.waitForTimeout(500);
-              console.log(`✅ '${optionText}' checked`);
-            } else {
-              console.log(`✅ '${optionText}' already checked`);
-            }
-          } else {
-            console.warn(`⚠️ No checkbox inside '${optionText}'`);
+          if (input && !(await input.isChecked())) {
+            await label.click();
+            await page.waitForTimeout(500);
+            console.log(`✅ '${optionText}' checked`);
+          } else if (input) {
+            console.log(`✅ '${optionText}' already checked`);
           }
         } else {
-          console.warn(`⚠️ '${optionText}' not found inside Supply`);
+          console.warn(`⚠️ Could not find '${optionText}' label`);
         }
       }
 
+      // Use visible text only
       await checkSupplyOption('Clock pre-sales');
-      await checkSupplyOption('Aalsmeer');
     } else {
       console.warn("⚠️ 'Supply' accordion not found");
     }
@@ -225,40 +203,30 @@ function formatRuntime(ms) {
     await page.waitForTimeout(5000);
 
     // --- Close filter sidebar ---
-    try {
-      const closeButton = page.locator('button[aria-label="Close"]').first();
-      if (await closeButton.isVisible({ timeout: 3000 })) {
-        await closeButton.click();
-      }
-    } catch {
-      console.warn('⚠️ Close button not found');
+    const closeButton = page.locator('button[aria-label="Close"]').first();
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click();
     }
-
     await page.waitForTimeout(1000);
 
     // --- Change items per page to 96 ---
-    let pageSizeChanged = false;
+    let pageSizeDropdown = await page.$('select.css-hh3ke9-pageSizeDropDownList');
 
-    try {
-      const selects = page.locator('select');
-      const count = await selects.count();
-
-      for (let i = 0; i < count; i++) {
-        const select = selects.nth(i);
-        const options = await select.locator('option').allTextContents();
-
-        if (options.some((t) => t.trim() === '96')) {
-          await select.selectOption('96');
-          pageSizeChanged = true;
-          console.log('✅ Changed items per page to 96');
+    if (!pageSizeDropdown) {
+      const selects = await page.$$('select');
+      for (const sel of selects) {
+        const options = await sel.$$eval('option', (opts) =>
+          opts.map((o) => o.textContent?.trim() || '')
+        );
+        if (options.includes('96')) {
+          pageSizeDropdown = sel;
           break;
         }
       }
-    } catch {
-      console.warn('⚠️ Could not find page size dropdown');
     }
 
-    if (pageSizeChanged) {
+    if (pageSizeDropdown) {
+      await pageSizeDropdown.selectOption('96');
       await page.waitForTimeout(3000);
     }
 
@@ -268,7 +236,6 @@ function formatRuntime(ms) {
 
     while (true) {
       console.log(`⏳ Scraping page ${pageNum}...`);
-
       await page.waitForSelector('div.css-2qghvq-gridContainer', { timeout: 60000 });
 
       const productHandles = await page.$$('div.css-2qghvq-gridContainer > div:not([data-test])');
@@ -341,7 +308,6 @@ function formatRuntime(ms) {
           const charSpans = await product.$$(
             'div.css-1cvv3s4-characteristics div.css-1kukt2z-value span'
           );
-
           for (const span of charSpans) {
             const text = await span.evaluate((el) => el.textContent.trim());
             characteristics.push(text);
@@ -351,7 +317,6 @@ function formatRuntime(ms) {
         }
 
         let helperValue = '';
-
         try {
           helperValue = await product.$eval(
             'div.MuiSelect-select.MuiSelect-standard.MuiInputBase-input.MuiInput-input',
@@ -409,7 +374,7 @@ function formatRuntime(ms) {
 
     console.log(`🎉 Total collected: ${allProducts.length} products`);
 
-    // --- Clear target sheet ---
+    // --- Clear the entire target sheet before writing new data ---
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
       range: process.env.TARGET_SHEET_NAME,
@@ -443,7 +408,6 @@ function formatRuntime(ms) {
 
     console.log('✅ Data saved to Google Sheet!');
 
-    // --- Success status ---
     const endTime = Date.now();
     const runtimeMs = endTime - startTime;
     const runtimeText = formatRuntime(runtimeMs);
