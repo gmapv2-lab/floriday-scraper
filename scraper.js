@@ -31,7 +31,7 @@ function formatRuntime(ms) {
 }
 
 (async () => {
-  const startTime = Date.now(); // 👈 measure total runtime from here
+  const startTime = Date.now();
 
   const EMAIL = process.env.FLORIDAY_EMAIL;
   const PASSWORD = process.env.FLORIDAY_PASSWORD;
@@ -51,7 +51,6 @@ function formatRuntime(ms) {
 
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
-  // This will help us close the browser even if something throws later
   let browser = null;
 
   try {
@@ -85,13 +84,18 @@ function formatRuntime(ms) {
     });
 
     // --- Click Purchase tab ---
-    const purchaseButton = page.locator('button.MuiTab-root:has-text("Purchase")');
+    const purchaseButton = page.getByRole('tab', { name: /Purchase/i });
     await purchaseButton.waitFor({ state: 'visible', timeout: 60000 });
     await purchaseButton.click();
     await page.waitForTimeout(3000);
 
     // --- Open filters ---
-    await page.click('div.css-1qo59uw-toolbarItem > button.css-17mby96-button');
+    // Old failing selector used dynamic class:
+    // div.css-1qo59uw-toolbarItem > button.css-17mby96-button
+    // Replaced with stable text-based button match
+    const filterButton = page.getByRole('button', { name: /Deliver/i }).first();
+    await filterButton.waitFor({ state: 'visible', timeout: 60000 });
+    await filterButton.click();
     await page.waitForTimeout(2000);
 
     // --- Accordion helper ---
@@ -100,16 +104,22 @@ function formatRuntime(ms) {
       for (const acc of accordions) {
         const span = await acc.$('span');
         if (!span) continue;
+
         const spanText = await span.evaluate((el) => el.innerText.trim());
         if (spanText === spanTextToFind) {
           const collapse = await acc.$('div.MuiCollapse-root');
-          const isCollapsed = await collapse.evaluate((el) =>
-            el.classList.contains('MuiCollapse-hidden')
-          );
-          if (isCollapsed) {
-            const button = await acc.$('button.MuiAccordionSummary-root');
-            await button.click();
-            await page.waitForTimeout(500);
+          if (collapse) {
+            const isCollapsed = await collapse.evaluate((el) =>
+              el.classList.contains('MuiCollapse-hidden')
+            );
+
+            if (isCollapsed) {
+              const button = await acc.$('button.MuiAccordionSummary-root');
+              if (button) {
+                await button.click();
+                await page.waitForTimeout(500);
+              }
+            }
           }
           return acc;
         }
@@ -121,10 +131,12 @@ function formatRuntime(ms) {
     const tradeAccordion = await openAccordion('Trade item');
     if (tradeAccordion) {
       const checkboxes = await tradeAccordion.$$('input[type="checkbox"]');
+
       for (const checkbox of checkboxes) {
         const labelText = await checkbox.evaluate(
-          (el) => el.closest('label')?.innerText.trim()
+          (el) => el.closest('label')?.innerText.trim() || ''
         );
+
         if (labelText && labelText.includes('Cut flowers')) {
           if (!(await checkbox.isChecked())) await checkbox.check();
         } else {
@@ -154,7 +166,7 @@ function formatRuntime(ms) {
       if (input) {
         const isChecked = await input.isChecked();
         if (isChecked) {
-          await directSalesLabel.click(); // Click label to toggle off
+          await directSalesLabel.click();
           await page.waitForTimeout(500);
           console.log("✅ 'Direct sales' checkbox was checked and is now unchecked");
         } else {
@@ -178,6 +190,7 @@ function formatRuntime(ms) {
           }
         }
       }
+
       await checkSupplyOption('Clock pre-sales');
       await checkSupplyOption('Aalsmeer');
     }
@@ -187,17 +200,62 @@ function formatRuntime(ms) {
     await page.waitForTimeout(5000);
 
     // --- Close filter sidebar ---
-    const closeButton = page.locator(
-      'button.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium.css-dk99c2'
-    );
-    if (await closeButton.isVisible()) await closeButton.click();
+    // Keep flow same, but make it more tolerant
+    const closeButtonCandidates = [
+      page.locator('button[aria-label="Close"]').first(),
+      page.locator('button.MuiIconButton-root').first(),
+    ];
+
+    for (const btn of closeButtonCandidates) {
+      try {
+        if (await btn.isVisible({ timeout: 2000 })) {
+          await btn.click();
+          break;
+        }
+      } catch {
+        // ignore and try next
+      }
+    }
+
     await page.waitForTimeout(1000);
 
     // --- Change items per page to 96 ---
-    const pageSizeDropdown = await page.$('select.css-hh3ke9-pageSizeDropDownList');
-    if (pageSizeDropdown) {
-      await pageSizeDropdown.selectOption('96');
+    // Keep flow same, but avoid strict dependency on hashed class
+    let pageSizeChanged = false;
+
+    try {
+      const pageSizeDropdown = page.locator('select.css-hh3ke9-pageSizeDropDownList');
+      if (await pageSizeDropdown.count()) {
+        await pageSizeDropdown.first().selectOption('96');
+        pageSizeChanged = true;
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!pageSizeChanged) {
+      try {
+        const allSelects = page.locator('select');
+        const count = await allSelects.count();
+
+        for (let i = 0; i < count; i++) {
+          const select = allSelects.nth(i);
+          const options = await select.locator('option').allTextContents();
+          if (options.some((t) => t.trim() === '96')) {
+            await select.selectOption('96');
+            pageSizeChanged = true;
+            break;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (pageSizeChanged) {
       await page.waitForTimeout(3000);
+    } else {
+      console.warn('⚠️ Could not find page size dropdown with option 96');
     }
 
     // --- Pagination loop ---
@@ -206,6 +264,7 @@ function formatRuntime(ms) {
 
     while (true) {
       console.log(`⏳ Scraping page ${pageNum}...`);
+
       await page.waitForSelector('div.css-2qghvq-gridContainer', { timeout: 60000 });
 
       const productHandles = await page.$$('div.css-2qghvq-gridContainer > div:not([data-test])');
@@ -214,16 +273,20 @@ function formatRuntime(ms) {
         const img = await product
           .$eval('.css-16275sc-imageContainer img', (el) => el.src)
           .catch(() => '');
+
         const detailsText = await product
           .$eval('.css-dcgd6i-itemDetails', (el) => el.innerText.trim())
           .catch(() => '');
+
         const lines = detailsText
           .split('\n')
           .map((l) => l.trim())
           .filter(Boolean);
+
         const name = lines[0] || '';
         const variety = lines[1] || '';
         const code = lines[2] || '';
+
         const price = await product
           .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
           .catch(() => '');
@@ -235,32 +298,28 @@ function formatRuntime(ms) {
           )
           .catch(() => '');
 
-        // Quantity & Price combined (e.g., "80 * €0.37" or "60 * €0.37")
+        // Quantity & Price combined
         let Quantity = '';
 
         try {
-          // Get the text that may contain quantity
           const quantityText = await product.$eval('div.MuiBox-root.css-18biwo', (el) =>
             el.textContent.trim()
           );
 
-          // 1️⃣ Try format like "×33×80"
           let qtyMatch = quantityText.match(/×(\d+)(?!.*×)/);
           let qty = qtyMatch ? qtyMatch[1] : '';
 
-          // 2️⃣ If not found, try format like "60 pcs" or "60pcs"
           if (!qty) {
             const pcsMatch = quantityText.match(/(\d+)\s*pcs/i);
             qty = pcsMatch ? pcsMatch[1] : '';
           }
 
-          // Get price text (e.g., "€0.37")
           const priceText = await product
             .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
             .catch(() => '');
+
           const priceOnly = priceText.replace('€', '').trim();
 
-          // Combine intelligently
           if (priceOnly) {
             Quantity = qty ? `${qty} * €${priceOnly}` : `€${priceOnly}`;
           }
@@ -290,10 +349,10 @@ function formatRuntime(ms) {
           // ignore
         }
 
-        // --- 🧩 Helper column (Q) ---
+        // --- Helper column ---
         let helperValue = '';
+
         try {
-          // Simple case: Direct sales
           helperValue = await product.$eval(
             'div.MuiSelect-select.MuiSelect-standard.MuiInputBase-input.MuiInput-input',
             (el) => el.innerText.trim()
@@ -301,9 +360,9 @@ function formatRuntime(ms) {
         } catch {
           // ignore
         }
+
         if (!helperValue) {
           try {
-            // Complex stacked case: Clock pre-sales + Daytrade
             helperValue = await product.$eval('div.MuiStack-root.css-1v3wv53', (el) => {
               const main = el.querySelector('div')?.innerText || '';
               const chip = el.querySelector('span.MuiChip-label')?.innerText;
@@ -313,12 +372,11 @@ function formatRuntime(ms) {
             // ignore
           }
         }
+
         if (!helperValue) helperValue = 'N/A';
 
-        // Time
         const timeValue = getUaeTimeFormatted();
 
-        // --- Push row (Helper before Time) ---
         const row = [
           name,
           variety,
@@ -332,16 +390,18 @@ function formatRuntime(ms) {
           helperValue,
           timeValue,
         ];
+
         allProducts.push(row);
       }
 
       console.log(`✅ Page ${pageNum} scraped (${productHandles.length} products)`);
 
-      // Pagination
       const nextBtn = await page.$('button[aria-label="Go to next page"]');
       if (!nextBtn) break;
+
       const disabled = await nextBtn.getAttribute('disabled');
       if (disabled !== null) break;
+
       await nextBtn.click();
       await page.waitForTimeout(4000);
       pageNum++;
@@ -349,7 +409,7 @@ function formatRuntime(ms) {
 
     console.log(`🎉 Total collected: ${allProducts.length} products`);
 
-    // --- Clear the entire target sheet before writing new data ---
+    // --- Clear target sheet ---
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
       range: process.env.TARGET_SHEET_NAME,
@@ -383,7 +443,7 @@ function formatRuntime(ms) {
 
     console.log('✅ Data saved to Google Sheet!');
 
-    // --- Calculate runtime and update F13 with timestamp + runtime ---
+    // --- Success status ---
     const endTime = Date.now();
     const runtimeMs = endTime - startTime;
     const runtimeText = formatRuntime(runtimeMs);
@@ -402,12 +462,10 @@ function formatRuntime(ms) {
   } catch (err) {
     console.error('❌ Scraping failed:', err);
 
-    // Calculate runtime even on failure
     const endTime = Date.now();
     const runtimeMs = endTime - startTime;
     const runtimeText = formatRuntime(runtimeMs);
 
-    // Mark failure in sheet
     try {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
