@@ -64,7 +64,7 @@ function formatRuntime(ms) {
 
     // --- Launch browser ---
     browser = await firefox.launch({ headless: true });
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
     const page = await context.newPage();
     page.setDefaultTimeout(120000);
 
@@ -84,9 +84,8 @@ function formatRuntime(ms) {
       console.log('✅ Purchase page opened');
     }
 
-    // --- Helper: open filter sidebar (FIXED) ---
+    // --- Helper: open filter sidebar ---
     async function openFiltersPanel() {
-      // Close any open popover/menu first
       await page.keyboard.press('Escape').catch(() => {});
       await page.waitForTimeout(500);
 
@@ -142,7 +141,9 @@ function formatRuntime(ms) {
 
       const input = await label.$('input[type="checkbox"]');
       if (input && !(await input.isChecked())) {
-        await label.click();
+        await label.scrollIntoViewIfNeeded().catch(() => {});
+        await page.waitForTimeout(300);
+        await label.click({ force: true });
         await page.waitForTimeout(500);
       }
 
@@ -163,9 +164,14 @@ function formatRuntime(ms) {
         return false;
       }
 
+      // Scroll into view first (critical for headless mode)
+      await label.scrollIntoViewIfNeeded().catch(() => {});
+      await page.waitForTimeout(300);
+
       const isChecked = await input.isChecked();
       if (isChecked) {
-        await label.click();
+        // force:true bypasses visibility checks that fail in headless
+        await label.click({ force: true });
         await page.waitForTimeout(500);
         console.log(`✅ '${optionText}' checkbox was checked and is now unchecked`);
       } else {
@@ -175,50 +181,50 @@ function formatRuntime(ms) {
       return true;
     }
 
-  async function selectSavedFilterAndReturnToPurchase(filterName) {
-  const savedAccordion = await openAccordion('Saved filters & selections');
-  if (!savedAccordion) {
-    console.warn("⚠️ 'Saved filters & selections' accordion not found");
-    return false;
-  }
+    // --- Helper: select saved filter ---
+    async function selectSavedFilterAndReturnToPurchase(filterName) {
+      const savedAccordion = await openAccordion('Saved filters & selections');
+      if (!savedAccordion) {
+        console.warn("⚠️ 'Saved filters & selections' accordion not found");
+        return false;
+      }
 
-  const input = page.locator('input[placeholder="Saved filters"]').first();
-  await input.waitFor({ state: 'visible', timeout: 10000 });
-  await input.click();
-  await page.waitForTimeout(500);
-  await input.fill(filterName);
-  await page.waitForTimeout(1000);
-
-  let option = page.locator('[role="option"]', { hasText: filterName }).first();
-
-  if (!(await option.count())) {
-    const openBtn = page.locator('button[aria-label="Open"][title="Open"]').last();
-    if (await openBtn.count()) {
-      await openBtn.click();
+      const input = page.locator('input[placeholder="Saved filters"]').first();
+      await input.waitFor({ state: 'visible', timeout: 10000 });
+      await input.click();
+      await page.waitForTimeout(500);
+      await input.fill(filterName);
       await page.waitForTimeout(1000);
+
+      let option = page.locator('[role="option"]', { hasText: filterName }).first();
+
+      if (!(await option.count())) {
+        const openBtn = page.locator('button[aria-label="Open"][title="Open"]').last();
+        if (await openBtn.count()) {
+          await openBtn.click();
+          await page.waitForTimeout(1000);
+        }
+        option = page.locator('[role="option"]', { hasText: filterName }).first();
+      }
+
+      if (!(await option.count())) {
+        console.warn(`⚠️ Saved filter not found: ${filterName}`);
+        return false;
+      }
+
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {}),
+        option.click(),
+      ]);
+
+      console.log(`✅ Saved filter clicked: ${filterName}`);
+      await page.waitForTimeout(3000);
+
+      await goToPurchasePage();
+
+      return true;
     }
-    option = page.locator('[role="option"]', { hasText: filterName }).first();
-  }
 
-  if (!(await option.count())) {
-    console.warn(`⚠️ Saved filter not found: ${filterName}`);
-    return false;
-  }
-
-  // Click and wait for navigation to complete
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {}),
-    option.click(),
-  ]);
-
-  console.log(`✅ Saved filter clicked: ${filterName}`);
-  await page.waitForTimeout(3000);
-
-  // Navigate back to Purchase page
-  await goToPurchasePage();
-
-  return true;
-}
     // --- Floriday login ---
     await page.goto('https://idm.floriday.io/', { waitUntil: 'load' });
     await page.locator('input#identifier').fill(EMAIL);
@@ -231,16 +237,16 @@ function formatRuntime(ms) {
     // --- Go to Purchase page ---
     await goToPurchasePage();
 
-    // --- Open filters first ---
+    // --- Open filters ---
     await openFiltersPanel();
 
-    // --- Select saved filter Aalsmeer, then return to Purchase page ---
+    // --- Select saved filter ---
     const savedFilterApplied = await selectSavedFilterAndReturnToPurchase('Flowers Aalsmeer');
     if (!savedFilterApplied) {
       console.warn("⚠️ Proceeding without saved filter 'Aalsmeer'");
     }
 
-    // --- Open filters again after returning ---
+    // --- Open filters again ---
     await openFiltersPanel();
 
     // --- Apply Trade item filter ---
@@ -286,10 +292,12 @@ function formatRuntime(ms) {
       console.warn("⚠️ 'All suppliers' button not found");
     }
 
-    // --- Uncheck Direct sales ---
+    // --- Open Supply accordion FIRST, then uncheck Direct sales ---
+    await openAccordion('Supply');
+    await page.waitForTimeout(800);
     await uncheckOptionByLabelText('Direct sales');
 
-    // --- Supply filter for Clock pre-sales only ---
+    // --- Supply filter: Clock pre-sales ---
     const supplyAccordion = await openAccordion('Supply');
     if (supplyAccordion) {
       const checked = await checkOptionInAccordion(supplyAccordion, 'Clock pre-sales');
