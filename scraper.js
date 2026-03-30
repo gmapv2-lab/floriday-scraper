@@ -83,12 +83,14 @@ function formatRuntime(ms) {
     }
 
     // --- Helper: open filter sidebar ---
-    async function openFiltersPanel() {
-  const buttons = page.locator('div[class*="toolbarItem"] > button');
-  const count = await buttons.count();
-  console.log(`🔍 Matching filter buttons found: ${count}`);
+async function openFiltersPanel() {
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(500);
 
-  const filterButton = buttons.first();
+  const filterButton = page
+    .locator('div[class*="toolbar"] button:has(span.MuiBadge-root)')
+    .first();
+
   await filterButton.waitFor({ state: 'visible', timeout: 20000 });
   await filterButton.click();
   await page.waitForTimeout(2000);
