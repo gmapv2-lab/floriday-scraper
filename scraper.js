@@ -46,6 +46,16 @@ function formatRuntime(ms) {
   const sheets = google.sheets({ version: 'v4', auth });
 
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
+  const TARGET_SHEET_NAME = process.env.TARGET_SHEET_NAME;
+
+  if (!SPREADSHEET_ID || !TARGET_SHEET_NAME) {
+    console.error('❌ GOOGLE_SHEET_ID or TARGET_SHEET_NAME is missing in .env');
+    process.exit(1);
+  }
+
+  const FILTERED_URL =
+    'https://customers.floriday.io/explorer/overview?a=CutProducts&rv=supply&rl=grid&wf=1&wt=53&rg=0&nwk=0&ti=ClockPresales&cwid=97f7c6e6-265a-45aa-be5d-c55a6236ff45&ip=partial&sb=SupplyLinePrice&plm=0&cur=EUR&fsi=0';
+
   let browser = null;
 
   try {
@@ -58,156 +68,53 @@ function formatRuntime(ms) {
     console.log('✅ Updated Status in Sheets to Scraping in Progress');
 
     browser = await firefox.launch({ headless: true });
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
     const page = await context.newPage();
+
     page.setDefaultTimeout(120000);
 
-    // --- Helper: open accordion by title ---
-    async function openAccordion(titleText) {
-      const accordions = await page.$$('div.MuiAccordion-root');
-      for (const acc of accordions) {
-        const titleNode = await acc.$('button.MuiAccordionSummary-root');
-        if (!titleNode) continue;
-        const titleTextFound = await titleNode.evaluate((el) =>
-          el.innerText.replace(/\s+/g, ' ').trim()
-        );
-        if (titleTextFound.includes(titleText)) {
-          const expanded = await titleNode.getAttribute('aria-expanded');
-          if (expanded !== 'true') {
-            await titleNode.click();
-            await page.waitForTimeout(800);
-          }
-          return acc;
-        }
-      }
-      return null;
-    }
-
-    // --- Login ---
+    // ---------------- LOGIN ----------------
+    console.log('🔐 Opening login page...');
     await page.goto('https://idm.floriday.io/', { waitUntil: 'load' });
+
     await page.locator('input#identifier').fill(EMAIL);
     await page.click('button:has-text("Next")');
+
     await page.locator('input[name="credentials.passcode"]').fill(PASSWORD);
     await page.click('button:has-text("Verify")');
-    await page.waitForLoadState('networkidle');
+
+    await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(5000);
 
-    // --- Go to Purchase page ---
-    await page.goto('https://customers.floriday.io/explorer/overview', {
+    console.log('✅ Logged in successfully');
+
+    // ---------------- GO DIRECTLY TO FILTERED URL ----------------
+    console.log('🌐 Opening filtered Floriday URL directly...');
+    await page.goto(FILTERED_URL, {
       waitUntil: 'domcontentloaded',
     });
+
     await page.waitForLoadState('networkidle').catch(() => {});
-    await page.waitForTimeout(3000);
-
-    const purchaseButton = page.locator('button.MuiTab-root:has-text("Purchase")').first();
-    await purchaseButton.waitFor({ state: 'visible', timeout: 60000 });
-    await purchaseButton.click();
-    await page.waitForTimeout(4000);
-    console.log('✅ Purchase page opened');
-
-    // --- Open filter sidebar ---
-    await page.keyboard.press('Escape').catch(() => {});
-    await page.waitForTimeout(500);
-
-    const filterButtons = page.locator('div[class*="toolbarItem"] button:has(span.MuiBadge-root)');
-    const filterCount = await filterButtons.count();
-    console.log(`🔍 Filter-like buttons found: ${filterCount}`);
-    if (filterCount === 0) throw new Error('❌ No filter button found');
-
-    await filterButtons.first().waitFor({ state: 'visible', timeout: 20000 });
-    await filterButtons.first().click();
-    await page.waitForTimeout(2000);
-    console.log('✅ Filter sidebar opened');
-
-    // --- Trade item: only Cut flowers ---
-    const tradeAccordion = await openAccordion('Trade item');
-    if (tradeAccordion) {
-      const checkboxes = await tradeAccordion.$$('input[type="checkbox"]');
-      for (const checkbox of checkboxes) {
-        const labelText = await checkbox.evaluate(
-          (el) => el.closest('label')?.innerText.trim() || ''
-        );
-        if (labelText.includes('Cut flowers')) {
-          if (!(await checkbox.isChecked())) await checkbox.check();
-        } else {
-          if (await checkbox.isChecked()) await checkbox.uncheck();
-        }
-      }
-      console.log('✅ Trade item filter applied');
-    } else {
-      console.warn("⚠️ 'Trade item' accordion not found");
-    }
-
-    // --- All suppliers ---
-    const allSuppliersBtn = await page.$(
-      'div[data-test="supplier-filters-supplier-combo-box"] button:has-text("All")'
-    );
-    if (allSuppliersBtn) {
-      const isSelected = await allSuppliersBtn.evaluate((el) =>
-        el.classList.contains('css-mtautz-button-selected')
-      );
-      if (!isSelected) {
-        await allSuppliersBtn.click();
-        await page.waitForTimeout(500);
-      }
-      console.log('✅ All suppliers selected');
-    } else {
-      console.warn("⚠️ 'All suppliers' button not found");
-    }
-
-    // --- Supply: uncheck Direct sales, check Clock pre-sales ---
-    const supplyAccordion = await openAccordion('Supply');
-    if (supplyAccordion) {
-      const collapseArea = await supplyAccordion.$('div.MuiCollapse-root');
-      if (collapseArea) {
-        const checkboxRows = await collapseArea.$$('span.MuiCheckbox-root');
-        for (const row of checkboxRows) {
-          const text = await row.evaluate((el) => el.parentElement?.innerText.trim() || '');
-          const input = await row.$('input[type="checkbox"]');
-          if (!input) continue;
-          const isChecked = await input.isChecked();
-
-          if (text.includes('Direct sales')) {
-            if (isChecked) {
-              await row.evaluate((el) => el.querySelector('input').click());
-              await page.waitForTimeout(500);
-              console.log("✅ 'Direct sales' unchecked");
-            } else {
-              console.log("✅ 'Direct sales' already unchecked");
-            }
-          }
-
-          if (text.includes('Clock pre-sales')) {
-            if (!isChecked) {
-              await row.evaluate((el) => el.querySelector('input').click());
-              await page.waitForTimeout(500);
-              console.log("✅ 'Clock pre-sales' checked");
-            } else {
-              console.log("✅ 'Clock pre-sales' already checked");
-            }
-          }
-        }
-      }
-    } else {
-      console.warn("⚠️ 'Supply' accordion not found");
-    }
-
-    // --- Click Search ---
-    await page.click('button[data-test="explorer-filter-search-button"]');
     await page.waitForTimeout(5000);
-    console.log('✅ Search clicked');
 
-    // --- Close filter sidebar ---
-    const closeButton = page.locator(
-      'button.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium.css-dk99c2'
-    );
-    if (await closeButton.isVisible().catch(() => false)) {
-      await closeButton.click();
-      await page.waitForTimeout(1000);
-      console.log('✅ Filter sidebar closed');
+    // optional small fallback reload if Floriday loads partial state
+    const pageText = await page.locator('body').innerText().catch(() => '');
+    if (
+      pageText.includes('Something went wrong') ||
+      pageText.includes('No results') ||
+      pageText.trim().length < 50
+    ) {
+      console.log('🔄 Initial page looked incomplete, reloading once...');
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.waitForTimeout(5000);
     }
 
-    // --- Page size: set to 96 ---
+    console.log('✅ Filtered page loaded');
+
+    // ---------------- PAGE SIZE ----------------
     try {
       const pageSizeSelect = await page.$('select[class*="pageSizeDropDown"]');
       if (pageSizeSelect) {
@@ -221,14 +128,13 @@ function formatRuntime(ms) {
       console.warn('⚠️ Could not set page size:', err.message);
     }
 
-    // --- Pagination loop ---
+    // ---------------- SCRAPE ----------------
     const allProducts = [];
     let pageNum = 1;
 
     while (true) {
       console.log(`⏳ Scraping page ${pageNum}...`);
 
-      // Find grid container
       let gridContainer = null;
       for (const sel of [
         'div.css-2qghvq-gridContainer',
@@ -246,11 +152,15 @@ function formatRuntime(ms) {
         }
       }
 
-      if (!gridContainer) throw new Error('❌ Could not find product grid container');
+      if (!gridContainer) {
+        throw new Error('❌ Could not find product grid container');
+      }
 
-      // Wait for products to actually load inside grid
       await page.waitForFunction(
-        (sel) => (document.querySelector(sel)?.children.length ?? 0) > 0,
+        (sel) => {
+          const el = document.querySelector(sel);
+          return el && el.children.length > 0;
+        },
         gridContainer,
         { timeout: 30000 }
       ).catch(() => console.warn('⚠️ Timed out waiting for products'));
@@ -271,7 +181,11 @@ function formatRuntime(ms) {
           .$eval('[class*="itemDetails"]', (el) => el.innerText.trim())
           .catch(() => '');
 
-        const lines = detailsText.split('\n').map((l) => l.trim()).filter(Boolean);
+        const lines = detailsText
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean);
+
         const name = lines[0] || '';
         const variety = lines[1] || '';
         const code = lines[2] || '';
@@ -281,28 +195,33 @@ function formatRuntime(ms) {
           .catch(() => '');
 
         const packingCode = await product
-          .$eval('div[style*="white-space: nowrap"] > div', (el) =>
-            el.textContent.trim().split(' - ')[0]
-          )
+          .$eval('div[style*="white-space: nowrap"] > div', (el) => {
+            return el.textContent.trim().split(' - ')[0];
+          })
           .catch(() => '');
 
-        let Quantity = '';
+        let quantity = '';
         try {
           const quantityText = await product.$eval('div.MuiBox-root.css-18biwo', (el) =>
             el.textContent.trim()
           );
-          let qtyMatch = quantityText.match(/×(\d+)(?!.*×)/);
+
+          let qtyMatch = quantityText.match(/×\s*(\d+)(?!.*×)/);
           let qty = qtyMatch ? qtyMatch[1] : '';
+
           if (!qty) {
             const pcsMatch = quantityText.match(/(\d+)\s*pcs/i);
             qty = pcsMatch ? pcsMatch[1] : '';
           }
+
           const priceText = await product
             .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
             .catch(() => '');
+
           const priceOnly = priceText.replace('€', '').trim();
+
           if (priceOnly) {
-            Quantity = qty ? `${qty} * €${priceOnly}` : `€${priceOnly}`;
+            quantity = qty ? `${qty} * €${priceOnly}` : `€${priceOnly}`;
           }
         } catch {
           // ignore
@@ -314,10 +233,12 @@ function formatRuntime(ms) {
 
         const characteristics = [];
         try {
-          const charSpans = await product.$$('div[class*="characteristics"] div[class*="value"] span');
+          const charSpans = await product.$$(
+            'div[class*="characteristics"] div[class*="value"] span'
+          );
           for (const span of charSpans) {
             const text = await span.evaluate((el) => el.textContent.trim());
-            characteristics.push(text);
+            if (text) characteristics.push(text);
           }
         } catch {
           // ignore
@@ -332,34 +253,45 @@ function formatRuntime(ms) {
         } catch {
           // ignore
         }
+
         if (!helperValue) {
           try {
             helperValue = await product.$eval('div.MuiStack-root.css-1v3wv53', (el) => {
               const main = el.querySelector('div')?.innerText || '';
-              const chip = el.querySelector('span.MuiChip-label')?.innerText;
+              const chip = el.querySelector('span.MuiChip-label')?.innerText || '';
               return chip ? `${main} (${chip})` : main;
             });
           } catch {
             // ignore
           }
         }
+
         if (!helperValue) helperValue = 'N/A';
 
         allProducts.push([
-          name, variety, code, packingCode, price, img,
-          Quantity, farmName, characteristics.join(' | '),
-          helperValue, getUaeTimeFormatted(),
+          name,
+          variety,
+          code,
+          packingCode,
+          price,
+          img,
+          quantity,
+          farmName,
+          characteristics.join(' | '),
+          helperValue,
+          getUaeTimeFormatted(),
         ]);
       }
 
       console.log(`✅ Page ${pageNum} scraped (${productHandles.length} products)`);
 
-      // --- Next page ---
+      // ---------------- NEXT PAGE ----------------
       const nextBtn = await page.$('button[aria-label="Go to next page"]');
       if (!nextBtn) {
         console.log('⏹ No next button — last page reached');
         break;
       }
+
       const disabled = await nextBtn.getAttribute('disabled');
       if (disabled !== null) {
         console.log('⏹ Next button disabled — last page reached');
@@ -370,31 +302,44 @@ function formatRuntime(ms) {
       await nextBtn.click();
       await page.waitForTimeout(1000);
       await page.waitForLoadState('networkidle').catch(() => {});
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(2500);
+
       pageNum++;
     }
 
-    console.log(`⏹ Pagination complete. Total pages: ${pageNum}`);
     console.log(`🎉 Total collected: ${allProducts.length} products`);
 
-    // --- Write to sheet ---
+    // ---------------- WRITE TO SHEET ----------------
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
-      range: process.env.TARGET_SHEET_NAME,
+      range: TARGET_SHEET_NAME,
     });
     console.log('🧹 Cleared old data from sheet');
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${process.env.TARGET_SHEET_NAME}!A1`,
+      range: `${TARGET_SHEET_NAME}!A1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [
-          ['Name', 'Variety', 'Code', 'Packing Code', 'Price', 'Image', 'Quantity', 'Farm Name', 'Characteristics', 'Helper', 'Time'],
+          [
+            'Name',
+            'Variety',
+            'Code',
+            'Packing Code',
+            'Price',
+            'Image',
+            'Quantity',
+            'Farm Name',
+            'Characteristics',
+            'Helper',
+            'Time',
+          ],
           ...allProducts,
         ],
       },
     });
+
     console.log('✅ Data saved to Google Sheet!');
 
     const endTime = Date.now();
@@ -407,25 +352,30 @@ function formatRuntime(ms) {
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[`✅ ${lastRunTime} — ${runtimeText}`]] },
     });
-    console.log(`🏁 Scraping completed! Runtime: ${runtimeText}`);
 
+    console.log(`🏁 Scraping completed! Runtime: ${runtimeText}`);
   } catch (err) {
     console.error('❌ Scraping failed:', err);
+
     const runtimeText = formatRuntime(Date.now() - startTime);
+
     try {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
         range: `_config!F13`,
         valueInputOption: 'USER_ENTERED',
         requestBody: {
-          values: [[`❌ Failed at ${getUaeTimeFormatted()} — runtime ( ${runtimeText} )`]],
+          values: [[`❌ Failed at ${getUaeTimeFormatted()} — runtime (${runtimeText})`]],
         },
       });
     } catch (updateErr) {
       console.error('❌ Failed to update failure status:', updateErr);
     }
+
     process.exitCode = 1;
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 })();
