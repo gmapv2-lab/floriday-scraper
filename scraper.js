@@ -31,7 +31,7 @@ function formatRuntime(ms) {
 }
 
 (async () => {
-  const startTime = Date.now();
+  const startTime = Date.now(); // 👈 measure total runtime from here
 
   const EMAIL = process.env.FLORIDAY_EMAIL;
   const PASSWORD = process.env.FLORIDAY_PASSWORD;
@@ -41,6 +41,7 @@ function formatRuntime(ms) {
     process.exit(1);
   }
 
+  // --- Setup Google Sheets client early ---
   const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
   const auth = new google.auth.GoogleAuth({
     credentials: serviceAccount,
@@ -50,6 +51,7 @@ function formatRuntime(ms) {
 
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
+  // This will help us close the browser even if something throws later
   let browser = null;
 
   try {
@@ -68,149 +70,6 @@ function formatRuntime(ms) {
     const page = await context.newPage();
     page.setDefaultTimeout(120000);
 
-    // --- Helper: open purchase page ---
-    async function goToPurchasePage() {
-      await page.goto('https://customers.floriday.io/explorer/overview', {
-        waitUntil: 'networkidle',
-      });
-
-      const purchaseButton = page.locator('button.MuiTab-root:has-text("Purchase")');
-      await purchaseButton.waitFor({ state: 'visible', timeout: 60000 });
-      await purchaseButton.click();
-      await page.waitForTimeout(3000);
-
-      console.log('✅ Purchase page opened');
-    }
-
-    // --- Helper: open filter sidebar ---
-async function openFiltersPanel() {
-  await page.keyboard.press('Escape').catch(() => {});
-  await page.waitForTimeout(500);
-
-  const filterButton = page
-    .locator('div[class*="toolbar"] button:has(span.MuiBadge-root)')
-    .first();
-
-  await filterButton.waitFor({ state: 'visible', timeout: 20000 });
-  await filterButton.click();
-  await page.waitForTimeout(2000);
-
-  console.log('✅ Filter sidebar opened');
-}
-    // --- Helper: open accordion by exact title ---
-    async function openAccordion(titleText) {
-      const accordions = await page.$$('div.MuiAccordion-root');
-
-      for (const acc of accordions) {
-        const titleNode = await acc.$('button.MuiAccordionSummary-root');
-        if (!titleNode) continue;
-
-        const titleTextFound = await titleNode.evaluate((el) =>
-          el.innerText.replace(/\s+/g, ' ').trim()
-        );
-
-        if (titleTextFound.includes(titleText)) {
-          const expanded = await titleNode.getAttribute('aria-expanded');
-
-          if (expanded !== 'true') {
-            await titleNode.click();
-            await page.waitForTimeout(800);
-          }
-
-          return acc;
-        }
-      }
-
-      return null;
-    }
-
-    // --- Helper: check checkbox option inside accordion ---
-    async function checkOptionInAccordion(accordion, optionText) {
-      if (!accordion) return false;
-
-      const label = await accordion.$(`label:has-text("${optionText}")`);
-      if (!label) return false;
-
-      const input = await label.$('input[type="checkbox"]');
-      if (input && !(await input.isChecked())) {
-        await label.click();
-        await page.waitForTimeout(500);
-      }
-
-      return true;
-    }
-
-    // --- Helper: uncheck checkbox by label text ---
-    async function uncheckOptionByLabelText(optionText) {
-      const label = await page.$(`label:has-text("${optionText}")`);
-      if (!label) {
-        console.warn(`⚠️ Could not find '${optionText}' label`);
-        return false;
-      }
-
-      const input = await label.$('input[type="checkbox"]');
-      if (!input) {
-        console.warn(`⚠️ Could not find checkbox inside '${optionText}' label`);
-        return false;
-      }
-
-      const isChecked = await input.isChecked();
-      if (isChecked) {
-        await label.click();
-        await page.waitForTimeout(500);
-        console.log(`✅ '${optionText}' checkbox was checked and is now unchecked`);
-      } else {
-        console.log(`✅ '${optionText}' checkbox is already unchecked`);
-      }
-
-      return true;
-    }
-
-    // --- Helper: select saved filter and return to Purchase page ---
-    async function selectSavedFilterAndReturnToPurchase(filterName) {
-      const savedAccordion = await openAccordion('Saved filters & selections');
-      if (!savedAccordion) {
-        console.warn("⚠️ 'Saved filters & selections' accordion not found");
-        return false;
-      }
-
-      const input = page.locator('input[placeholder="Saved filters"]').first();
-      await input.waitFor({ state: 'visible', timeout: 10000 });
-      await input.click();
-      await page.waitForTimeout(500);
-      await input.fill(filterName);
-      await page.waitForTimeout(1000);
-
-      let option = page.locator('[role="option"]', { hasText: filterName }).first();
-
-      if (!(await option.count())) {
-        // fallback: try opening popup button
-        const openBtn = page.locator('button[aria-label="Open"][title="Open"]').last();
-        if (await openBtn.count()) {
-          await openBtn.click();
-          await page.waitForTimeout(1000);
-        }
-
-        option = page.locator('[role="option"]', { hasText: filterName }).first();
-      }
-
-      if (!(await option.count())) {
-        console.warn(`⚠️ Saved filter not found: ${filterName}`);
-        return false;
-      }
-
-      await option.click();
-      console.log(`✅ Saved filter clicked: ${filterName}`);
-
-      // Wait for page/update after saved filter selection
-      await page.waitForTimeout(4000);
-
-      // Go back directly to Purchase page
-      await goToPurchasePage();
-
-      return true;
-    }
-
     // --- Floriday login ---
     await page.goto('https://idm.floriday.io/', { waitUntil: 'load' });
     await page.locator('input#identifier').fill(EMAIL);
@@ -220,48 +79,60 @@ async function openFiltersPanel() {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(5000);
 
-    // --- Go to Purchase page ---
-    await goToPurchasePage();
+    // --- Go to Explorer overview ---
+    await page.goto('https://customers.floriday.io/explorer/overview', {
+      waitUntil: 'networkidle',
+    });
 
-    // --- Open filters first ---
-    await openFiltersPanel();
+    // --- Click Purchase tab ---
+    const purchaseButton = page.locator('button.MuiTab-root:has-text("Purchase")');
+    await purchaseButton.waitFor({ state: 'visible', timeout: 60000 });
+    await purchaseButton.click();
+    await page.waitForTimeout(3000);
 
-    // --- Select saved filter Aalsmeer, then return to Purchase page ---
-    const savedFilterApplied = await selectSavedFilterAndReturnToPurchase('Flowers Aalsmeer');
-    if (!savedFilterApplied) {
-      console.warn("⚠️ Proceeding without saved filter 'Aalsmeer'");
+    // --- Open filters ---
+    await page.click('div.css-1qo59uw-toolbarItem > button.css-17mby96-button');
+    await page.waitForTimeout(2000);
+
+    // --- Accordion helper ---
+    async function openAccordion(spanTextToFind) {
+      const accordions = await page.$$('div.MuiAccordion-root');
+      for (const acc of accordions) {
+        const span = await acc.$('span');
+        if (!span) continue;
+        const spanText = await span.evaluate((el) => el.innerText.trim());
+        if (spanText === spanTextToFind) {
+          const collapse = await acc.$('div.MuiCollapse-root');
+          const isCollapsed = await collapse.evaluate((el) =>
+            el.classList.contains('MuiCollapse-hidden')
+          );
+          if (isCollapsed) {
+            const button = await acc.$('button.MuiAccordionSummary-root');
+            await button.click();
+            await page.waitForTimeout(500);
+          }
+          return acc;
+        }
+      }
+      return null;
     }
 
-    // --- Open filters again after returning ---
-    await openFiltersPanel();
-
-    // --- Apply Trade item filter ---
+    // --- Apply filters ---
     const tradeAccordion = await openAccordion('Trade item');
     if (tradeAccordion) {
       const checkboxes = await tradeAccordion.$$('input[type="checkbox"]');
-
       for (const checkbox of checkboxes) {
         const labelText = await checkbox.evaluate(
-          (el) => el.closest('label')?.innerText.trim() || ''
+          (el) => el.closest('label')?.innerText.trim()
         );
-
         if (labelText && labelText.includes('Cut flowers')) {
-          if (!(await checkbox.isChecked())) {
-            await checkbox.check();
-          }
+          if (!(await checkbox.isChecked())) await checkbox.check();
         } else {
-          if (await checkbox.isChecked()) {
-            await checkbox.uncheck();
-          }
+          if (await checkbox.isChecked()) await checkbox.uncheck();
         }
       }
-
-      console.log('✅ Trade item filter applied');
-    } else {
-      console.warn("⚠️ 'Trade item' accordion not found");
     }
 
-    // --- All suppliers button ---
     const allSuppliersBtn = await page.$(
       'div[data-test="supplier-filters-supplier-combo-box"] button:has-text("All")'
     );
@@ -269,54 +140,64 @@ async function openFiltersPanel() {
       const isSelected = await allSuppliersBtn.evaluate((el) =>
         el.classList.contains('css-mtautz-button-selected')
       );
-      if (!isSelected) {
-        await allSuppliersBtn.click();
-        await page.waitForTimeout(500);
-      }
-      console.log('✅ All suppliers selected');
-    } else {
-      console.warn("⚠️ 'All suppliers' button not found");
+      if (!isSelected) await allSuppliersBtn.click();
     }
 
-    // --- Uncheck Direct sales ---
-    await uncheckOptionByLabelText('Direct sales');
-
-    // --- Supply filter for Clock pre-sales only ---
     const supplyAccordion = await openAccordion('Supply');
-    if (supplyAccordion) {
-      const checked = await checkOptionInAccordion(supplyAccordion, 'Clock pre-sales');
-      if (checked) {
-        console.log("✅ 'Clock pre-sales' selected");
+
+    // Find the label for "Direct sales"
+    const directSalesLabel = await page.$('label:has-text("Direct sales")');
+
+    if (directSalesLabel) {
+      const input = await directSalesLabel.$('input[type="checkbox"]');
+
+      if (input) {
+        const isChecked = await input.isChecked();
+        if (isChecked) {
+          await directSalesLabel.click(); // Click label to toggle off
+          await page.waitForTimeout(500);
+          console.log("✅ 'Direct sales' checkbox was checked and is now unchecked");
+        } else {
+          console.log("✅ 'Direct sales' checkbox is already unchecked");
+        }
       } else {
-        console.warn("⚠️ Could not find 'Clock pre-sales'");
+        console.warn("⚠️ Could not find input inside 'Direct sales' label");
       }
     } else {
-      console.warn("⚠️ 'Supply' accordion not found");
+      console.warn("⚠️ Could not find 'Direct sales' label");
+    }
+
+    if (supplyAccordion) {
+      async function checkSupplyOption(optionText) {
+        const label = await supplyAccordion.$(`label:has-text("${optionText}")`);
+        if (label) {
+          const input = await label.$('input[type="checkbox"]');
+          if (input && !(await input.isChecked())) {
+            await label.click();
+            await page.waitForTimeout(500);
+          }
+        }
+      }
+      await checkSupplyOption('Clock pre-sales');
+      await checkSupplyOption('Aalsmeer');
     }
 
     // --- Click Search ---
     await page.click('button[data-test="explorer-filter-search-button"]');
     await page.waitForTimeout(5000);
-    console.log('✅ Search clicked');
 
     // --- Close filter sidebar ---
     const closeButton = page.locator(
       'button.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium.css-dk99c2'
     );
-    if (await closeButton.isVisible().catch(() => false)) {
-      await closeButton.click();
-      await page.waitForTimeout(1000);
-      console.log('✅ Filter sidebar closed');
-    }
+    if (await closeButton.isVisible()) await closeButton.click();
+    await page.waitForTimeout(1000);
 
     // --- Change items per page to 96 ---
     const pageSizeDropdown = await page.$('select.css-hh3ke9-pageSizeDropDownList');
     if (pageSizeDropdown) {
       await pageSizeDropdown.selectOption('96');
       await page.waitForTimeout(3000);
-      console.log('✅ Items per page set to 96');
-    } else {
-      console.warn('⚠️ Page size dropdown not found');
     }
 
     // --- Pagination loop ---
@@ -333,51 +214,53 @@ async function openFiltersPanel() {
         const img = await product
           .$eval('.css-16275sc-imageContainer img', (el) => el.src)
           .catch(() => '');
-
         const detailsText = await product
           .$eval('.css-dcgd6i-itemDetails', (el) => el.innerText.trim())
           .catch(() => '');
-
         const lines = detailsText
           .split('\n')
           .map((l) => l.trim())
           .filter(Boolean);
-
         const name = lines[0] || '';
         const variety = lines[1] || '';
         const code = lines[2] || '';
-
         const price = await product
           .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
           .catch(() => '');
 
+        // Packing code
         const packingCode = await product
           .$eval('div[style*="white-space: nowrap"] > div', (el) =>
             el.textContent.trim().split(' - ')[0]
           )
           .catch(() => '');
 
+        // Quantity & Price combined (e.g., "80 * €0.37" or "60 * €0.37")
         let Quantity = '';
 
         try {
+          // Get the text that may contain quantity
           const quantityText = await product.$eval('div.MuiBox-root.css-18biwo', (el) =>
             el.textContent.trim()
           );
 
+          // 1️⃣ Try format like "×33×80"
           let qtyMatch = quantityText.match(/×(\d+)(?!.*×)/);
           let qty = qtyMatch ? qtyMatch[1] : '';
 
+          // 2️⃣ If not found, try format like "60 pcs" or "60pcs"
           if (!qty) {
             const pcsMatch = quantityText.match(/(\d+)\s*pcs/i);
             qty = pcsMatch ? pcsMatch[1] : '';
           }
 
+          // Get price text (e.g., "€0.37")
           const priceText = await product
             .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
             .catch(() => '');
-
           const priceOnly = priceText.replace('€', '').trim();
 
+          // Combine intelligently
           if (priceOnly) {
             Quantity = qty ? `${qty} * €${priceOnly}` : `€${priceOnly}`;
           }
@@ -385,6 +268,7 @@ async function openFiltersPanel() {
           console.log('❌ Quantity or price not found for this product.');
         }
 
+        // Farm name
         const farmName = await product
           .$eval('div.css-xfjc11-root', (el) => {
             const imgEl = el.querySelector('img');
@@ -392,6 +276,7 @@ async function openFiltersPanel() {
           })
           .catch(() => '');
 
+        // Characteristics
         const characteristics = [];
         try {
           const charSpans = await product.$$(
@@ -405,8 +290,10 @@ async function openFiltersPanel() {
           // ignore
         }
 
+        // --- 🧩 Helper column (Q) ---
         let helperValue = '';
         try {
+          // Simple case: Direct sales
           helperValue = await product.$eval(
             'div.MuiSelect-select.MuiSelect-standard.MuiInputBase-input.MuiInput-input',
             (el) => el.innerText.trim()
@@ -414,9 +301,9 @@ async function openFiltersPanel() {
         } catch {
           // ignore
         }
-
         if (!helperValue) {
           try {
+            // Complex stacked case: Clock pre-sales + Daytrade
             helperValue = await product.$eval('div.MuiStack-root.css-1v3wv53', (el) => {
               const main = el.querySelector('div')?.innerText || '';
               const chip = el.querySelector('span.MuiChip-label')?.innerText;
@@ -426,11 +313,12 @@ async function openFiltersPanel() {
             // ignore
           }
         }
-
         if (!helperValue) helperValue = 'N/A';
 
+        // Time
         const timeValue = getUaeTimeFormatted();
 
+        // --- Push row (Helper before Time) ---
         const row = [
           name,
           variety,
@@ -444,18 +332,16 @@ async function openFiltersPanel() {
           helperValue,
           timeValue,
         ];
-
         allProducts.push(row);
       }
 
       console.log(`✅ Page ${pageNum} scraped (${productHandles.length} products)`);
 
+      // Pagination
       const nextBtn = await page.$('button[aria-label="Go to next page"]');
       if (!nextBtn) break;
-
       const disabled = await nextBtn.getAttribute('disabled');
       if (disabled !== null) break;
-
       await nextBtn.click();
       await page.waitForTimeout(4000);
       pageNum++;
@@ -463,7 +349,7 @@ async function openFiltersPanel() {
 
     console.log(`🎉 Total collected: ${allProducts.length} products`);
 
-    // --- Clear target sheet ---
+    // --- Clear the entire target sheet before writing new data ---
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
       range: process.env.TARGET_SHEET_NAME,
@@ -497,7 +383,7 @@ async function openFiltersPanel() {
 
     console.log('✅ Data saved to Google Sheet!');
 
-    // --- Final success status ---
+    // --- Calculate runtime and update F13 with timestamp + runtime ---
     const endTime = Date.now();
     const runtimeMs = endTime - startTime;
     const runtimeText = formatRuntime(runtimeMs);
@@ -516,10 +402,12 @@ async function openFiltersPanel() {
   } catch (err) {
     console.error('❌ Scraping failed:', err);
 
+    // Calculate runtime even on failure
     const endTime = Date.now();
     const runtimeMs = endTime - startTime;
     const runtimeText = formatRuntime(runtimeMs);
 
+    // Mark failure in sheet
     try {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
