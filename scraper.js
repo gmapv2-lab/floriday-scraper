@@ -235,7 +235,7 @@ function formatRuntime(ms) {
     await openFiltersPanel();
 
     // --- Select saved filter Aalsmeer, then return to Purchase page ---
-    const savedFilterApplied = await selectSavedFilterAndReturnToPurchase('Aalsmeer');
+    const savedFilterApplied = await selectSavedFilterAndReturnToPurchase('Flowers Aalsmeer');
     if (!savedFilterApplied) {
       console.warn("⚠️ Proceeding without saved filter 'Aalsmeer'");
     }
