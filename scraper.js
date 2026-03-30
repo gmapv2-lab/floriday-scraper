@@ -4,7 +4,6 @@ import { firefox } from 'playwright';
 
 dotenv.config();
 
-// --- Get current UAE time ---
 function getUaeTimeFormatted() {
   return new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Dubai',
@@ -20,12 +19,10 @@ function getUaeTimeFormatted() {
     .replace(',', '');
 }
 
-// --- Format runtime (ms) as "42s" or "2m 13s" ---
 function formatRuntime(ms) {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
-
   if (minutes === 0) return `${seconds}s`;
   return `${minutes}m ${remainingSeconds}s`;
 }
@@ -65,51 +62,15 @@ function formatRuntime(ms) {
     const page = await context.newPage();
     page.setDefaultTimeout(120000);
 
-    // --- Helper: go to Purchase page ---
-    async function goToPurchasePage() {
-      await page.goto('https://customers.floriday.io/explorer/overview', {
-        waitUntil: 'domcontentloaded',
-      });
-      await page.waitForLoadState('networkidle').catch(() => {});
-      await page.waitForTimeout(3000);
-
-      const purchaseButton = page.locator('button.MuiTab-root:has-text("Purchase")').first();
-      await purchaseButton.waitFor({ state: 'visible', timeout: 60000 });
-      await purchaseButton.click();
-      await page.waitForTimeout(4000);
-
-      console.log('✅ Purchase page opened');
-    }
-
-    // --- Helper: open filter sidebar ---
-    async function openFiltersPanel() {
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(500);
-
-      const filterButtons = page.locator('div[class*="toolbarItem"] button:has(span.MuiBadge-root)');
-      const count = await filterButtons.count();
-      console.log(`🔍 Filter-like buttons found: ${count}`);
-
-      if (count === 0) throw new Error('❌ No filter button found');
-
-      await filterButtons.first().waitFor({ state: 'visible', timeout: 20000 });
-      await filterButtons.first().click();
-      await page.waitForTimeout(2000);
-
-      console.log('✅ Filter sidebar opened');
-    }
-
     // --- Helper: open accordion by title ---
     async function openAccordion(titleText) {
       const accordions = await page.$$('div.MuiAccordion-root');
       for (const acc of accordions) {
         const titleNode = await acc.$('button.MuiAccordionSummary-root');
         if (!titleNode) continue;
-
         const titleTextFound = await titleNode.evaluate((el) =>
           el.innerText.replace(/\s+/g, ' ').trim()
         );
-
         if (titleTextFound.includes(titleText)) {
           const expanded = await titleNode.getAttribute('aria-expanded');
           if (expanded !== 'true') {
@@ -122,49 +83,6 @@ function formatRuntime(ms) {
       return null;
     }
 
-    // --- Helper: select saved filter and return to Purchase page ---
-    async function selectSavedFilterAndReturnToPurchase(filterName) {
-      const savedAccordion = await openAccordion('Saved filters & selections');
-      if (!savedAccordion) {
-        console.warn("⚠️ 'Saved filters & selections' accordion not found");
-        return false;
-      }
-
-      const input = page.locator('input[placeholder="Saved filters"]').first();
-      await input.waitFor({ state: 'visible', timeout: 10000 });
-      await input.click();
-      await page.waitForTimeout(500);
-      await input.fill(filterName);
-      await page.waitForTimeout(1000);
-
-      let option = page.locator('[role="option"]', { hasText: filterName }).first();
-
-      if (!(await option.count())) {
-        const openBtn = page.locator('button[aria-label="Open"][title="Open"]').last();
-        if (await openBtn.count()) {
-          await openBtn.click();
-          await page.waitForTimeout(1000);
-        }
-        option = page.locator('[role="option"]', { hasText: filterName }).first();
-      }
-
-      if (!(await option.count())) {
-        console.warn(`⚠️ Saved filter not found: ${filterName}`);
-        return false;
-      }
-
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {}),
-        option.click(),
-      ]);
-
-      console.log(`✅ Saved filter clicked: ${filterName}`);
-      await page.waitForTimeout(3000);
-      await goToPurchasePage();
-
-      return true;
-    }
-
     // --- Login ---
     await page.goto('https://idm.floriday.io/', { waitUntil: 'load' });
     await page.locator('input#identifier').fill(EMAIL);
@@ -174,17 +92,34 @@ function formatRuntime(ms) {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(5000);
 
-    await goToPurchasePage();
-    await openFiltersPanel();
+    // --- Go to Purchase page ---
+    await page.goto('https://customers.floriday.io/explorer/overview', {
+      waitUntil: 'domcontentloaded',
+    });
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(3000);
 
-    const savedFilterApplied = await selectSavedFilterAndReturnToPurchase('Flowers Aalsmeer');
-    if (!savedFilterApplied) {
-      console.warn("⚠️ Proceeding without saved filter 'Flowers Aalsmeer'");
-    }
+    const purchaseButton = page.locator('button.MuiTab-root:has-text("Purchase")').first();
+    await purchaseButton.waitFor({ state: 'visible', timeout: 60000 });
+    await purchaseButton.click();
+    await page.waitForTimeout(4000);
+    console.log('✅ Purchase page opened');
 
-    await openFiltersPanel();
+    // --- Open filter sidebar ---
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(500);
 
-    // --- Trade item filter ---
+    const filterButtons = page.locator('div[class*="toolbarItem"] button:has(span.MuiBadge-root)');
+    const filterCount = await filterButtons.count();
+    console.log(`🔍 Filter-like buttons found: ${filterCount}`);
+    if (filterCount === 0) throw new Error('❌ No filter button found');
+
+    await filterButtons.first().waitFor({ state: 'visible', timeout: 20000 });
+    await filterButtons.first().click();
+    await page.waitForTimeout(2000);
+    console.log('✅ Filter sidebar opened');
+
+    // --- Trade item: only Cut flowers ---
     const tradeAccordion = await openAccordion('Trade item');
     if (tradeAccordion) {
       const checkboxes = await tradeAccordion.$$('input[type="checkbox"]');
@@ -192,7 +127,7 @@ function formatRuntime(ms) {
         const labelText = await checkbox.evaluate(
           (el) => el.closest('label')?.innerText.trim() || ''
         );
-        if (labelText && labelText.includes('Cut flowers')) {
+        if (labelText.includes('Cut flowers')) {
           if (!(await checkbox.isChecked())) await checkbox.check();
         } else {
           if (await checkbox.isChecked()) await checkbox.uncheck();
@@ -220,24 +155,16 @@ function formatRuntime(ms) {
       console.warn("⚠️ 'All suppliers' button not found");
     }
 
-    // --- Supply accordion: Direct sales + Clock pre-sales ---
+    // --- Supply: uncheck Direct sales, check Clock pre-sales ---
     const supplyAccordion = await openAccordion('Supply');
     if (supplyAccordion) {
-      // Get only checkboxes INSIDE the supply accordion collapse area
       const collapseArea = await supplyAccordion.$('div.MuiCollapse-root');
       if (collapseArea) {
         const checkboxRows = await collapseArea.$$('span.MuiCheckbox-root');
-
         for (const row of checkboxRows) {
-          const text = await row.evaluate((el) => {
-            // walk up to find sibling text
-            const parent = el.parentElement;
-            return parent ? parent.innerText.trim() : '';
-          });
-
+          const text = await row.evaluate((el) => el.parentElement?.innerText.trim() || '');
           const input = await row.$('input[type="checkbox"]');
           if (!input) continue;
-
           const isChecked = await input.isChecked();
 
           if (text.includes('Direct sales')) {
@@ -265,7 +192,7 @@ function formatRuntime(ms) {
       console.warn("⚠️ 'Supply' accordion not found");
     }
 
-    // --- Search ---
+    // --- Click Search ---
     await page.click('button[data-test="explorer-filter-search-button"]');
     await page.waitForTimeout(5000);
     console.log('✅ Search clicked');
@@ -280,28 +207,15 @@ function formatRuntime(ms) {
       console.log('✅ Filter sidebar closed');
     }
 
-    // --- Page size: try select, fallback to clicking option ---
+    // --- Page size: set to 96 ---
     try {
       const pageSizeSelect = await page.$('select[class*="pageSizeDropDown"]');
       if (pageSizeSelect) {
         await pageSizeSelect.selectOption('96');
         await page.waitForTimeout(3000);
-        console.log('✅ Items per page set to 96 via select');
+        console.log('✅ Items per page set to 96');
       } else {
-        // fallback: look for a visible dropdown/button showing page size
-        const pageSizeBtn = page.locator('text=/per page|96|48|24/i').first();
-        if (await pageSizeBtn.count()) {
-          await pageSizeBtn.click();
-          await page.waitForTimeout(1000);
-          const option96 = page.locator('[role="option"]:has-text("96")').first();
-          if (await option96.count()) {
-            await option96.click();
-            await page.waitForTimeout(3000);
-            console.log('✅ Items per page set to 96 via dropdown');
-          }
-        } else {
-          console.warn('⚠️ Page size control not found, continuing with default');
-        }
+        console.warn('⚠️ Page size control not found, continuing with default');
       }
     } catch (err) {
       console.warn('⚠️ Could not set page size:', err.message);
@@ -314,16 +228,14 @@ function formatRuntime(ms) {
     while (true) {
       console.log(`⏳ Scraping page ${pageNum}...`);
 
-      // Wait for product grid — try multiple selectors
+      // Find grid container
       let gridContainer = null;
-      const gridSelectors = [
+      for (const sel of [
         'div.css-2qghvq-gridContainer',
         'div[class*="gridContainer"]',
         'div[data-test="explorer-grid"]',
         'div[class*="explorerGrid"]',
-      ];
-
-      for (const sel of gridSelectors) {
+      ]) {
         try {
           await page.waitForSelector(sel, { timeout: 15000 });
           gridContainer = sel;
@@ -334,14 +246,16 @@ function formatRuntime(ms) {
         }
       }
 
-      if (!gridContainer) {
-        throw new Error('❌ Could not find product grid container');
-      }
+      if (!gridContainer) throw new Error('❌ Could not find product grid container');
 
-      // Get product cards — children of grid that are not data-test elements
+      // Wait for products to actually load inside grid
+      await page.waitForFunction(
+        (sel) => (document.querySelector(sel)?.children.length ?? 0) > 0,
+        gridContainer,
+        { timeout: 30000 }
+      ).catch(() => console.warn('⚠️ Timed out waiting for products'));
+
       let productHandles = await page.$$(`${gridContainer} > div:not([data-test])`);
-
-      // fallback if nothing found
       if (!productHandles.length) {
         productHandles = await page.$$(`${gridContainer} > div`);
       }
@@ -357,11 +271,7 @@ function formatRuntime(ms) {
           .$eval('[class*="itemDetails"]', (el) => el.innerText.trim())
           .catch(() => '');
 
-        const lines = detailsText
-          .split('\n')
-          .map((l) => l.trim())
-          .filter(Boolean);
-
+        const lines = detailsText.split('\n').map((l) => l.trim()).filter(Boolean);
         const name = lines[0] || '';
         const variety = lines[1] || '';
         const code = lines[2] || '';
@@ -381,20 +291,16 @@ function formatRuntime(ms) {
           const quantityText = await product.$eval('div.MuiBox-root.css-18biwo', (el) =>
             el.textContent.trim()
           );
-
           let qtyMatch = quantityText.match(/×(\d+)(?!.*×)/);
           let qty = qtyMatch ? qtyMatch[1] : '';
-
           if (!qty) {
             const pcsMatch = quantityText.match(/(\d+)\s*pcs/i);
             qty = pcsMatch ? pcsMatch[1] : '';
           }
-
           const priceText = await product
             .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
             .catch(() => '');
           const priceOnly = priceText.replace('€', '').trim();
-
           if (priceOnly) {
             Quantity = qty ? `${qty} * €${priceOnly}` : `€${priceOnly}`;
           }
@@ -408,9 +314,7 @@ function formatRuntime(ms) {
 
         const characteristics = [];
         try {
-          const charSpans = await product.$$(
-            'div[class*="characteristics"] div[class*="value"] span'
-          );
+          const charSpans = await product.$$('div[class*="characteristics"] div[class*="value"] span');
           for (const span of charSpans) {
             const text = await span.evaluate((el) => el.textContent.trim());
             characteristics.push(text);
@@ -428,7 +332,6 @@ function formatRuntime(ms) {
         } catch {
           // ignore
         }
-
         if (!helperValue) {
           try {
             helperValue = await product.$eval('div.MuiStack-root.css-1v3wv53', (el) => {
@@ -440,64 +343,62 @@ function formatRuntime(ms) {
             // ignore
           }
         }
-
         if (!helperValue) helperValue = 'N/A';
 
-        const timeValue = getUaeTimeFormatted();
-
         allProducts.push([
-          name,
-          variety,
-          code,
-          packingCode,
-          price,
-          img,
-          Quantity,
-          farmName,
-          characteristics.join(' | '),
-          helperValue,
-          timeValue,
+          name, variety, code, packingCode, price, img,
+          Quantity, farmName, characteristics.join(' | '),
+          helperValue, getUaeTimeFormatted(),
         ]);
       }
 
       console.log(`✅ Page ${pageNum} scraped (${productHandles.length} products)`);
 
+      // --- Next page ---
       const nextBtn = await page.$('button[aria-label="Go to next page"]');
-      if (!nextBtn) break;
-
+      if (!nextBtn) {
+        console.log('⏹ No next button — last page reached');
+        break;
+      }
       const disabled = await nextBtn.getAttribute('disabled');
-      if (disabled !== null) break;
+      if (disabled !== null) {
+        console.log('⏹ Next button disabled — last page reached');
+        break;
+      }
 
+      console.log(`➡️ Going to page ${pageNum + 1}...`);
       await nextBtn.click();
-      await page.waitForTimeout(4000);
+      await page.waitForTimeout(1000);
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.waitForTimeout(2000);
       pageNum++;
     }
 
+    console.log(`⏹ Pagination complete. Total pages: ${pageNum}`);
     console.log(`🎉 Total collected: ${allProducts.length} products`);
 
+    // --- Write to sheet ---
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
       range: process.env.TARGET_SHEET_NAME,
     });
     console.log('🧹 Cleared old data from sheet');
 
-    const values = [
-      ['Name', 'Variety', 'Code', 'Packing Code', 'Price', 'Image', 'Quantity', 'Farm Name', 'Characteristics', 'Helper', 'Time'],
-      ...allProducts,
-    ];
-
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `${process.env.TARGET_SHEET_NAME}!A1`,
       valueInputOption: 'RAW',
-      requestBody: { values },
+      requestBody: {
+        values: [
+          ['Name', 'Variety', 'Code', 'Packing Code', 'Price', 'Image', 'Quantity', 'Farm Name', 'Characteristics', 'Helper', 'Time'],
+          ...allProducts,
+        ],
+      },
     });
-
     console.log('✅ Data saved to Google Sheet!');
 
     const endTime = Date.now();
-    const runtimeMs = endTime - startTime;
-    const runtimeText = formatRuntime(runtimeMs);
+    const runtimeText = formatRuntime(endTime - startTime);
     const lastRunTime = getUaeTimeFormatted();
 
     await sheets.spreadsheets.values.update({
@@ -506,15 +407,11 @@ function formatRuntime(ms) {
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[`✅ ${lastRunTime} — ${runtimeText}`]] },
     });
-
     console.log(`🏁 Scraping completed! Runtime: ${runtimeText}`);
 
   } catch (err) {
     console.error('❌ Scraping failed:', err);
-
-    const endTime = Date.now();
-    const runtimeText = formatRuntime(endTime - startTime);
-
+    const runtimeText = formatRuntime(Date.now() - startTime);
     try {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
@@ -525,9 +422,8 @@ function formatRuntime(ms) {
         },
       });
     } catch (updateErr) {
-      console.error('❌ Failed to update failure status in sheet:', updateErr);
+      console.error('❌ Failed to update failure status:', updateErr);
     }
-
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
