@@ -84,16 +84,17 @@ function formatRuntime(ms) {
 
     // --- Helper: open filter sidebar ---
     async function openFiltersPanel() {
-      const filterButton = page.locator(
-        'div.css-1qo59uw-toolbarItem > button.css-vdzhq1-button'
-      );
-      await filterButton.waitFor({ state: 'visible', timeout: 20000 });
-      await filterButton.click();
-      await page.waitForTimeout(2000);
+  const buttons = page.locator('div[class*="toolbarItem"] > button');
+  const count = await buttons.count();
+  console.log(`🔍 Matching filter buttons found: ${count}`);
 
-      console.log('✅ Filter sidebar opened');
-    }
+  const filterButton = buttons.first();
+  await filterButton.waitFor({ state: 'visible', timeout: 20000 });
+  await filterButton.click();
+  await page.waitForTimeout(2000);
 
+  console.log('✅ Filter sidebar opened');
+}
     // --- Helper: open accordion by exact title ---
     async function openAccordion(titleText) {
       const accordions = await page.$$('div.MuiAccordion-root');
