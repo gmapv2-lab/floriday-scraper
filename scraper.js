@@ -175,50 +175,50 @@ function formatRuntime(ms) {
       return true;
     }
 
-    // --- Helper: select saved filter and return to Purchase page ---
-    async function selectSavedFilterAndReturnToPurchase(filterName) {
-      const savedAccordion = await openAccordion('Saved filters & selections');
-      if (!savedAccordion) {
-        console.warn("⚠️ 'Saved filters & selections' accordion not found");
-        return false;
-      }
+  async function selectSavedFilterAndReturnToPurchase(filterName) {
+  const savedAccordion = await openAccordion('Saved filters & selections');
+  if (!savedAccordion) {
+    console.warn("⚠️ 'Saved filters & selections' accordion not found");
+    return false;
+  }
 
-      const input = page.locator('input[placeholder="Saved filters"]').first();
-      await input.waitFor({ state: 'visible', timeout: 10000 });
-      await input.click();
-      await page.waitForTimeout(500);
-      await input.fill(filterName);
+  const input = page.locator('input[placeholder="Saved filters"]').first();
+  await input.waitFor({ state: 'visible', timeout: 10000 });
+  await input.click();
+  await page.waitForTimeout(500);
+  await input.fill(filterName);
+  await page.waitForTimeout(1000);
+
+  let option = page.locator('[role="option"]', { hasText: filterName }).first();
+
+  if (!(await option.count())) {
+    const openBtn = page.locator('button[aria-label="Open"][title="Open"]').last();
+    if (await openBtn.count()) {
+      await openBtn.click();
       await page.waitForTimeout(1000);
-
-      let option = page.locator('[role="option"]', { hasText: filterName }).first();
-
-      if (!(await option.count())) {
-        // fallback: try opening popup button
-        const openBtn = page.locator('button[aria-label="Open"][title="Open"]').last();
-        if (await openBtn.count()) {
-          await openBtn.click();
-          await page.waitForTimeout(1000);
-        }
-        option = page.locator('[role="option"]', { hasText: filterName }).first();
-      }
-
-      if (!(await option.count())) {
-        console.warn(`⚠️ Saved filter not found: ${filterName}`);
-        return false;
-      }
-
-      await option.click();
-      console.log(`✅ Saved filter clicked: ${filterName}`);
-
-      // Wait for page/update after saved filter selection
-      await page.waitForTimeout(4000);
-
-      // Go back directly to Purchase page
-      await goToPurchasePage();
-
-      return true;
     }
+    option = page.locator('[role="option"]', { hasText: filterName }).first();
+  }
 
+  if (!(await option.count())) {
+    console.warn(`⚠️ Saved filter not found: ${filterName}`);
+    return false;
+  }
+
+  // Click and wait for navigation to complete
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {}),
+    option.click(),
+  ]);
+
+  console.log(`✅ Saved filter clicked: ${filterName}`);
+  await page.waitForTimeout(3000);
+
+  // Navigate back to Purchase page
+  await goToPurchasePage();
+
+  return true;
+}
     // --- Floriday login ---
     await page.goto('https://idm.floriday.io/', { waitUntil: 'load' });
     await page.locator('input#identifier').fill(EMAIL);
