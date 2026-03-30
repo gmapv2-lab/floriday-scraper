@@ -31,7 +31,7 @@ function formatRuntime(ms) {
 }
 
 (async () => {
-  const startTime = Date.now();
+  const startTime = Date.now(); // 👈 measure total runtime from here
 
   const EMAIL = process.env.FLORIDAY_EMAIL;
   const PASSWORD = process.env.FLORIDAY_PASSWORD;
@@ -51,6 +51,7 @@ function formatRuntime(ms) {
 
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
+  // This will help us close the browser even if something throws later
   let browser = null;
 
   try {
@@ -84,45 +85,35 @@ function formatRuntime(ms) {
     });
 
     // --- Click Purchase tab ---
-    const purchaseButton = page.getByRole('tab', { name: /Purchase/i });
+    const purchaseButton = page.locator('button.MuiTab-root:has-text("Purchase")');
     await purchaseButton.waitFor({ state: 'visible', timeout: 60000 });
     await purchaseButton.click();
     await page.waitForTimeout(3000);
 
     // --- Open filters ---
-    const filterButton = page.getByRole('button', { name: /Deliver/i }).first();
-    await filterButton.waitFor({ state: 'visible', timeout: 60000 });
-    await filterButton.click();
+    await page.click('div.css-1qo59uw-toolbarItem > button.css-17mby96-button');
     await page.waitForTimeout(2000);
 
     // --- Accordion helper ---
     async function openAccordion(spanTextToFind) {
       const accordions = await page.$$('div.MuiAccordion-root');
-
       for (const acc of accordions) {
-        const button = await acc.$('button.MuiAccordionSummary-root');
-        if (!button) continue;
-
-        const buttonText = await button.evaluate((el) => el.innerText.trim());
-
-        if (buttonText.toLowerCase().includes(spanTextToFind.toLowerCase())) {
+        const span = await acc.$('span');
+        if (!span) continue;
+        const spanText = await span.evaluate((el) => el.innerText.trim());
+        if (spanText === spanTextToFind) {
           const collapse = await acc.$('div.MuiCollapse-root');
-
-          if (collapse) {
-            const isCollapsed = await collapse.evaluate((el) =>
-              el.classList.contains('MuiCollapse-hidden')
-            );
-
-            if (isCollapsed) {
-              await button.click();
-              await page.waitForTimeout(700);
-            }
+          const isCollapsed = await collapse.evaluate((el) =>
+            el.classList.contains('MuiCollapse-hidden')
+          );
+          if (isCollapsed) {
+            const button = await acc.$('button.MuiAccordionSummary-root');
+            await button.click();
+            await page.waitForTimeout(500);
           }
-
           return acc;
         }
       }
-
       return null;
     }
 
@@ -130,12 +121,10 @@ function formatRuntime(ms) {
     const tradeAccordion = await openAccordion('Trade item');
     if (tradeAccordion) {
       const checkboxes = await tradeAccordion.$$('input[type="checkbox"]');
-
       for (const checkbox of checkboxes) {
         const labelText = await checkbox.evaluate(
-          (el) => el.closest('label')?.innerText.trim() || ''
+          (el) => el.closest('label')?.innerText.trim()
         );
-
         if (labelText && labelText.includes('Cut flowers')) {
           if (!(await checkbox.isChecked())) await checkbox.check();
         } else {
@@ -148,34 +137,37 @@ function formatRuntime(ms) {
       'div[data-test="supplier-filters-supplier-combo-box"] button:has-text("All")'
     );
     if (allSuppliersBtn) {
-      await allSuppliersBtn.click().catch(() => {});
+      const isSelected = await allSuppliersBtn.evaluate((el) =>
+        el.classList.contains('css-mtautz-button-selected')
+      );
+      if (!isSelected) await allSuppliersBtn.click();
     }
 
     const supplyAccordion = await openAccordion('Supply');
 
-    if (supplyAccordion) {
-      // Find the label for "Direct sales" INSIDE supply accordion
-      const directSalesLabel = await supplyAccordion.$('label:has-text("Direct sales")');
+    // Find the label for "Direct sales"
+    const directSalesLabel = await page.$('label:has-text("Direct sales")');
 
-      if (directSalesLabel) {
-        const input = await directSalesLabel.$('input[type="checkbox"]');
+    if (directSalesLabel) {
+      const input = await directSalesLabel.$('input[type="checkbox"]');
 
-        if (input) {
-          const isChecked = await input.isChecked();
-          if (isChecked) {
-            await directSalesLabel.click();
-            await page.waitForTimeout(500);
-            console.log("✅ 'Direct sales' checkbox was checked and is now unchecked");
-          } else {
-            console.log("✅ 'Direct sales' checkbox is already unchecked");
-          }
+      if (input) {
+        const isChecked = await input.isChecked();
+        if (isChecked) {
+          await directSalesLabel.click(); // Click label to toggle off
+          await page.waitForTimeout(500);
+          console.log("✅ 'Direct sales' checkbox was checked and is now unchecked");
         } else {
-          console.warn("⚠️ Could not find input inside 'Direct sales' label");
+          console.log("✅ 'Direct sales' checkbox is already unchecked");
         }
       } else {
-        console.warn("⚠️ Could not find 'Direct sales' label");
+        console.warn("⚠️ Could not find input inside 'Direct sales' label");
       }
+    } else {
+      console.warn("⚠️ Could not find 'Direct sales' label");
+    }
 
+    if (supplyAccordion) {
       async function checkSupplyOption(optionText) {
         const label = await supplyAccordion.$(`label:has-text("${optionText}")`);
         if (label) {
@@ -183,19 +175,11 @@ function formatRuntime(ms) {
           if (input && !(await input.isChecked())) {
             await label.click();
             await page.waitForTimeout(500);
-            console.log(`✅ '${optionText}' checked`);
-          } else if (input) {
-            console.log(`✅ '${optionText}' already checked`);
           }
-        } else {
-          console.warn(`⚠️ Could not find '${optionText}' label`);
         }
       }
-
-      // Use visible text only
       await checkSupplyOption('Clock pre-sales');
-    } else {
-      console.warn("⚠️ 'Supply' accordion not found");
+      await checkSupplyOption('Aalsmeer');
     }
 
     // --- Click Search ---
@@ -203,28 +187,14 @@ function formatRuntime(ms) {
     await page.waitForTimeout(5000);
 
     // --- Close filter sidebar ---
-    const closeButton = page.locator('button[aria-label="Close"]').first();
-    if (await closeButton.isVisible().catch(() => false)) {
-      await closeButton.click();
-    }
+    const closeButton = page.locator(
+      'button.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeMedium.css-dk99c2'
+    );
+    if (await closeButton.isVisible()) await closeButton.click();
     await page.waitForTimeout(1000);
 
     // --- Change items per page to 96 ---
-    let pageSizeDropdown = await page.$('select.css-hh3ke9-pageSizeDropDownList');
-
-    if (!pageSizeDropdown) {
-      const selects = await page.$$('select');
-      for (const sel of selects) {
-        const options = await sel.$$eval('option', (opts) =>
-          opts.map((o) => o.textContent?.trim() || '')
-        );
-        if (options.includes('96')) {
-          pageSizeDropdown = sel;
-          break;
-        }
-      }
-    }
-
+    const pageSizeDropdown = await page.$('select.css-hh3ke9-pageSizeDropDownList');
     if (pageSizeDropdown) {
       await pageSizeDropdown.selectOption('96');
       await page.waitForTimeout(3000);
@@ -244,58 +214,61 @@ function formatRuntime(ms) {
         const img = await product
           .$eval('.css-16275sc-imageContainer img', (el) => el.src)
           .catch(() => '');
-
         const detailsText = await product
           .$eval('.css-dcgd6i-itemDetails', (el) => el.innerText.trim())
           .catch(() => '');
-
         const lines = detailsText
           .split('\n')
           .map((l) => l.trim())
           .filter(Boolean);
-
         const name = lines[0] || '';
         const variety = lines[1] || '';
         const code = lines[2] || '';
-
         const price = await product
           .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
           .catch(() => '');
 
+        // Packing code
         const packingCode = await product
           .$eval('div[style*="white-space: nowrap"] > div', (el) =>
             el.textContent.trim().split(' - ')[0]
           )
           .catch(() => '');
 
+        // Quantity & Price combined (e.g., "80 * €0.37" or "60 * €0.37")
         let Quantity = '';
 
         try {
+          // Get the text that may contain quantity
           const quantityText = await product.$eval('div.MuiBox-root.css-18biwo', (el) =>
             el.textContent.trim()
           );
 
+          // 1️⃣ Try format like "×33×80"
           let qtyMatch = quantityText.match(/×(\d+)(?!.*×)/);
           let qty = qtyMatch ? qtyMatch[1] : '';
 
+          // 2️⃣ If not found, try format like "60 pcs" or "60pcs"
           if (!qty) {
             const pcsMatch = quantityText.match(/(\d+)\s*pcs/i);
             qty = pcsMatch ? pcsMatch[1] : '';
           }
 
+          // Get price text (e.g., "€0.37")
           const priceText = await product
             .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
             .catch(() => '');
-
           const priceOnly = priceText.replace('€', '').trim();
 
+          // Combine intelligently
           if (priceOnly) {
             Quantity = qty ? `${qty} * €${priceOnly}` : `€${priceOnly}`;
           }
-        } catch {
+        } catch (err) {
           console.log('❌ Quantity or price not found for this product.');
         }
 
+        // Farm name
         const farmName = await product
           .$eval('div.css-xfjc11-root', (el) => {
             const imgEl = el.querySelector('img');
@@ -303,6 +276,7 @@ function formatRuntime(ms) {
           })
           .catch(() => '');
 
+        // Characteristics
         const characteristics = [];
         try {
           const charSpans = await product.$$(
@@ -316,8 +290,10 @@ function formatRuntime(ms) {
           // ignore
         }
 
+        // --- 🧩 Helper column (Q) ---
         let helperValue = '';
         try {
+          // Simple case: Direct sales
           helperValue = await product.$eval(
             'div.MuiSelect-select.MuiSelect-standard.MuiInputBase-input.MuiInput-input',
             (el) => el.innerText.trim()
@@ -325,9 +301,9 @@ function formatRuntime(ms) {
         } catch {
           // ignore
         }
-
         if (!helperValue) {
           try {
+            // Complex stacked case: Clock pre-sales + Daytrade
             helperValue = await product.$eval('div.MuiStack-root.css-1v3wv53', (el) => {
               const main = el.querySelector('div')?.innerText || '';
               const chip = el.querySelector('span.MuiChip-label')?.innerText;
@@ -337,11 +313,12 @@ function formatRuntime(ms) {
             // ignore
           }
         }
-
         if (!helperValue) helperValue = 'N/A';
 
+        // Time
         const timeValue = getUaeTimeFormatted();
 
+        // --- Push row (Helper before Time) ---
         const row = [
           name,
           variety,
@@ -355,18 +332,16 @@ function formatRuntime(ms) {
           helperValue,
           timeValue,
         ];
-
         allProducts.push(row);
       }
 
       console.log(`✅ Page ${pageNum} scraped (${productHandles.length} products)`);
 
+      // Pagination
       const nextBtn = await page.$('button[aria-label="Go to next page"]');
       if (!nextBtn) break;
-
       const disabled = await nextBtn.getAttribute('disabled');
       if (disabled !== null) break;
-
       await nextBtn.click();
       await page.waitForTimeout(4000);
       pageNum++;
@@ -408,6 +383,7 @@ function formatRuntime(ms) {
 
     console.log('✅ Data saved to Google Sheet!');
 
+    // --- Calculate runtime and update F13 with timestamp + runtime ---
     const endTime = Date.now();
     const runtimeMs = endTime - startTime;
     const runtimeText = formatRuntime(runtimeMs);
@@ -426,10 +402,12 @@ function formatRuntime(ms) {
   } catch (err) {
     console.error('❌ Scraping failed:', err);
 
+    // Calculate runtime even on failure
     const endTime = Date.now();
     const runtimeMs = endTime - startTime;
     const runtimeText = formatRuntime(runtimeMs);
 
+    // Mark failure in sheet
     try {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
