@@ -63,7 +63,7 @@ function formatRuntime(ms) {
     console.log('✅ Updated Status in Sheets to Scraping in Progress');
 
     // --- Launch browser ---
-    browser = await firefox.launch({ headless: false });
+    browser = await firefox.launch({ headless: true });
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     page.setDefaultTimeout(120000);
