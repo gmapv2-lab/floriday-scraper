@@ -85,7 +85,7 @@ function formatRuntime(ms) {
     // --- Helper: open filter sidebar ---
     async function openFiltersPanel() {
       const filterButton = page.locator(
-        'div.css-1qo59uw-toolbarItem > button.css-17mby96-button'
+        'div.css-1qo59uw-toolbarItem > button.css-vdzhq1-button'
       );
       await filterButton.waitFor({ state: 'visible', timeout: 20000 });
       await filterButton.click();
