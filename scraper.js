@@ -49,11 +49,9 @@ function formatRuntime(ms) {
   const sheets = google.sheets({ version: 'v4', auth });
 
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
-
   let browser = null;
 
   try {
-    // --- Status: Scraping in progress ---
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `_config!F13`,
@@ -62,7 +60,6 @@ function formatRuntime(ms) {
     });
     console.log('✅ Updated Status in Sheets to Scraping in Progress');
 
-    // --- Launch browser ---
     browser = await firefox.launch({ headless: true });
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
@@ -93,13 +90,10 @@ function formatRuntime(ms) {
       const count = await filterButtons.count();
       console.log(`🔍 Filter-like buttons found: ${count}`);
 
-      if (count === 0) {
-        throw new Error('❌ No filter button found');
-      }
+      if (count === 0) throw new Error('❌ No filter button found');
 
-      const filterButton = filterButtons.first();
-      await filterButton.waitFor({ state: 'visible', timeout: 20000 });
-      await filterButton.click();
+      await filterButtons.first().waitFor({ state: 'visible', timeout: 20000 });
+      await filterButtons.first().click();
       await page.waitForTimeout(2000);
 
       console.log('✅ Filter sidebar opened');
@@ -108,7 +102,6 @@ function formatRuntime(ms) {
     // --- Helper: open accordion by title ---
     async function openAccordion(titleText) {
       const accordions = await page.$$('div.MuiAccordion-root');
-
       for (const acc of accordions) {
         const titleNode = await acc.$('button.MuiAccordionSummary-root');
         if (!titleNode) continue;
@@ -119,33 +112,14 @@ function formatRuntime(ms) {
 
         if (titleTextFound.includes(titleText)) {
           const expanded = await titleNode.getAttribute('aria-expanded');
-
           if (expanded !== 'true') {
             await titleNode.click();
             await page.waitForTimeout(800);
           }
-
           return acc;
         }
       }
-
       return null;
-    }
-
-    // --- Helper: check checkbox option inside accordion ---
-    async function checkOptionInAccordion(accordion, optionText) {
-      if (!accordion) return false;
-
-      const label = await accordion.$(`label:has-text("${optionText}")`);
-      if (!label) return false;
-
-      const input = await label.$('input[type="checkbox"]');
-      if (input && !(await input.isChecked())) {
-        await label.click();
-        await page.waitForTimeout(500);
-      }
-
-      return true;
     }
 
     // --- Helper: select saved filter and return to Purchase page ---
@@ -179,7 +153,6 @@ function formatRuntime(ms) {
         return false;
       }
 
-      // Click and wait for navigation to complete
       await Promise.all([
         page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {}),
         option.click(),
@@ -187,14 +160,12 @@ function formatRuntime(ms) {
 
       console.log(`✅ Saved filter clicked: ${filterName}`);
       await page.waitForTimeout(3000);
-
-      // Navigate back to Purchase page
       await goToPurchasePage();
 
       return true;
     }
 
-    // --- Floriday login ---
+    // --- Login ---
     await page.goto('https://idm.floriday.io/', { waitUntil: 'load' });
     await page.locator('input#identifier').fill(EMAIL);
     await page.click('button:has-text("Next")');
@@ -203,48 +174,36 @@ function formatRuntime(ms) {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(5000);
 
-    // --- Go to Purchase page ---
     await goToPurchasePage();
-
-    // --- Open filters first ---
     await openFiltersPanel();
 
-    // --- Select saved filter, then return to Purchase page ---
     const savedFilterApplied = await selectSavedFilterAndReturnToPurchase('Flowers Aalsmeer');
     if (!savedFilterApplied) {
       console.warn("⚠️ Proceeding without saved filter 'Flowers Aalsmeer'");
     }
 
-    // --- Open filters again after returning ---
     await openFiltersPanel();
 
-    // --- Apply Trade item filter ---
+    // --- Trade item filter ---
     const tradeAccordion = await openAccordion('Trade item');
     if (tradeAccordion) {
       const checkboxes = await tradeAccordion.$$('input[type="checkbox"]');
-
       for (const checkbox of checkboxes) {
         const labelText = await checkbox.evaluate(
           (el) => el.closest('label')?.innerText.trim() || ''
         );
-
         if (labelText && labelText.includes('Cut flowers')) {
-          if (!(await checkbox.isChecked())) {
-            await checkbox.check();
-          }
+          if (!(await checkbox.isChecked())) await checkbox.check();
         } else {
-          if (await checkbox.isChecked()) {
-            await checkbox.uncheck();
-          }
+          if (await checkbox.isChecked()) await checkbox.uncheck();
         }
       }
-
       console.log('✅ Trade item filter applied');
     } else {
       console.warn("⚠️ 'Trade item' accordion not found");
     }
 
-    // --- All suppliers button ---
+    // --- All suppliers ---
     const allSuppliersBtn = await page.$(
       'div[data-test="supplier-filters-supplier-combo-box"] button:has-text("All")'
     );
@@ -261,40 +220,44 @@ function formatRuntime(ms) {
       console.warn("⚠️ 'All suppliers' button not found");
     }
 
-    // --- Open Supply accordion and handle Direct sales + Clock pre-sales ---
+    // --- Supply accordion: Direct sales + Clock pre-sales ---
     const supplyAccordion = await openAccordion('Supply');
-
     if (supplyAccordion) {
-      const checkboxRows = await supplyAccordion.$$('span.MuiCheckbox-root');
+      // Get only checkboxes INSIDE the supply accordion collapse area
+      const collapseArea = await supplyAccordion.$('div.MuiCollapse-root');
+      if (collapseArea) {
+        const checkboxRows = await collapseArea.$$('span.MuiCheckbox-root');
 
-      for (const row of checkboxRows) {
-        const text = await row.evaluate((el) => {
-          const parent = el.closest('li, div');
-          return parent ? parent.innerText.trim() : '';
-        });
+        for (const row of checkboxRows) {
+          const text = await row.evaluate((el) => {
+            // walk up to find sibling text
+            const parent = el.parentElement;
+            return parent ? parent.innerText.trim() : '';
+          });
 
-        const input = await row.$('input[type="checkbox"]');
-        if (!input) continue;
+          const input = await row.$('input[type="checkbox"]');
+          if (!input) continue;
 
-        const isChecked = await input.isChecked();
+          const isChecked = await input.isChecked();
 
-        if (text.includes('Direct sales')) {
-          if (isChecked) {
-            await row.evaluate((el) => el.querySelector('input').click());
-            await page.waitForTimeout(500);
-            console.log("✅ 'Direct sales' unchecked");
-          } else {
-            console.log("✅ 'Direct sales' already unchecked");
+          if (text.includes('Direct sales')) {
+            if (isChecked) {
+              await row.evaluate((el) => el.querySelector('input').click());
+              await page.waitForTimeout(500);
+              console.log("✅ 'Direct sales' unchecked");
+            } else {
+              console.log("✅ 'Direct sales' already unchecked");
+            }
           }
-        }
 
-        if (text.includes('Clock pre-sales')) {
-          if (!isChecked) {
-            await row.evaluate((el) => el.querySelector('input').click());
-            await page.waitForTimeout(500);
-            console.log("✅ 'Clock pre-sales' checked");
-          } else {
-            console.log("✅ 'Clock pre-sales' already checked");
+          if (text.includes('Clock pre-sales')) {
+            if (!isChecked) {
+              await row.evaluate((el) => el.querySelector('input').click());
+              await page.waitForTimeout(500);
+              console.log("✅ 'Clock pre-sales' checked");
+            } else {
+              console.log("✅ 'Clock pre-sales' already checked");
+            }
           }
         }
       }
@@ -302,7 +265,7 @@ function formatRuntime(ms) {
       console.warn("⚠️ 'Supply' accordion not found");
     }
 
-    // --- Click Search ---
+    // --- Search ---
     await page.click('button[data-test="explorer-filter-search-button"]');
     await page.waitForTimeout(5000);
     console.log('✅ Search clicked');
@@ -317,14 +280,31 @@ function formatRuntime(ms) {
       console.log('✅ Filter sidebar closed');
     }
 
-    // --- Change items per page to 96 ---
-    const pageSizeDropdown = await page.$('select.css-hh3ke9-pageSizeDropDownList');
-    if (pageSizeDropdown) {
-      await pageSizeDropdown.selectOption('96');
-      await page.waitForTimeout(3000);
-      console.log('✅ Items per page set to 96');
-    } else {
-      console.warn('⚠️ Page size dropdown not found');
+    // --- Page size: try select, fallback to clicking option ---
+    try {
+      const pageSizeSelect = await page.$('select[class*="pageSizeDropDown"]');
+      if (pageSizeSelect) {
+        await pageSizeSelect.selectOption('96');
+        await page.waitForTimeout(3000);
+        console.log('✅ Items per page set to 96 via select');
+      } else {
+        // fallback: look for a visible dropdown/button showing page size
+        const pageSizeBtn = page.locator('text=/per page|96|48|24/i').first();
+        if (await pageSizeBtn.count()) {
+          await pageSizeBtn.click();
+          await page.waitForTimeout(1000);
+          const option96 = page.locator('[role="option"]:has-text("96")').first();
+          if (await option96.count()) {
+            await option96.click();
+            await page.waitForTimeout(3000);
+            console.log('✅ Items per page set to 96 via dropdown');
+          }
+        } else {
+          console.warn('⚠️ Page size control not found, continuing with default');
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not set page size:', err.message);
     }
 
     // --- Pagination loop ---
@@ -333,17 +313,48 @@ function formatRuntime(ms) {
 
     while (true) {
       console.log(`⏳ Scraping page ${pageNum}...`);
-      await page.waitForSelector('div.css-2qghvq-gridContainer', { timeout: 60000 });
 
-      const productHandles = await page.$$('div.css-2qghvq-gridContainer > div:not([data-test])');
+      // Wait for product grid — try multiple selectors
+      let gridContainer = null;
+      const gridSelectors = [
+        'div.css-2qghvq-gridContainer',
+        'div[class*="gridContainer"]',
+        'div[data-test="explorer-grid"]',
+        'div[class*="explorerGrid"]',
+      ];
+
+      for (const sel of gridSelectors) {
+        try {
+          await page.waitForSelector(sel, { timeout: 15000 });
+          gridContainer = sel;
+          console.log(`✅ Grid found using: ${sel}`);
+          break;
+        } catch {
+          // try next
+        }
+      }
+
+      if (!gridContainer) {
+        throw new Error('❌ Could not find product grid container');
+      }
+
+      // Get product cards — children of grid that are not data-test elements
+      let productHandles = await page.$$(`${gridContainer} > div:not([data-test])`);
+
+      // fallback if nothing found
+      if (!productHandles.length) {
+        productHandles = await page.$$(`${gridContainer} > div`);
+      }
+
+      console.log(`📦 Products on this page: ${productHandles.length}`);
 
       for (const product of productHandles) {
         const img = await product
-          .$eval('.css-16275sc-imageContainer img', (el) => el.src)
+          .$eval('img', (el) => el.src)
           .catch(() => '');
 
         const detailsText = await product
-          .$eval('.css-dcgd6i-itemDetails', (el) => el.innerText.trim())
+          .$eval('[class*="itemDetails"]', (el) => el.innerText.trim())
           .catch(() => '');
 
         const lines = detailsText
@@ -366,7 +377,6 @@ function formatRuntime(ms) {
           .catch(() => '');
 
         let Quantity = '';
-
         try {
           const quantityText = await product.$eval('div.MuiBox-root.css-18biwo', (el) =>
             el.textContent.trim()
@@ -383,27 +393,23 @@ function formatRuntime(ms) {
           const priceText = await product
             .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
             .catch(() => '');
-
           const priceOnly = priceText.replace('€', '').trim();
 
           if (priceOnly) {
             Quantity = qty ? `${qty} * €${priceOnly}` : `€${priceOnly}`;
           }
-        } catch (err) {
-          console.log('❌ Quantity or price not found for this product.');
+        } catch {
+          // ignore
         }
 
         const farmName = await product
-          .$eval('div.css-xfjc11-root', (el) => {
-            const imgEl = el.querySelector('img');
-            return imgEl?.alt?.trim() || el.textContent.trim();
-          })
+          .$eval('div[class*="root"] img', (el) => el.alt?.trim() || '')
           .catch(() => '');
 
         const characteristics = [];
         try {
           const charSpans = await product.$$(
-            'div.css-1cvv3s4-characteristics div.css-1kukt2z-value span'
+            'div[class*="characteristics"] div[class*="value"] span'
           );
           for (const span of charSpans) {
             const text = await span.evaluate((el) => el.textContent.trim());
@@ -439,7 +445,7 @@ function formatRuntime(ms) {
 
         const timeValue = getUaeTimeFormatted();
 
-        const row = [
+        allProducts.push([
           name,
           variety,
           code,
@@ -451,9 +457,7 @@ function formatRuntime(ms) {
           characteristics.join(' | '),
           helperValue,
           timeValue,
-        ];
-
-        allProducts.push(row);
+        ]);
       }
 
       console.log(`✅ Page ${pageNum} scraped (${productHandles.length} products)`);
@@ -471,28 +475,14 @@ function formatRuntime(ms) {
 
     console.log(`🎉 Total collected: ${allProducts.length} products`);
 
-    // --- Clear target sheet ---
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
       range: process.env.TARGET_SHEET_NAME,
     });
-    console.log('🧹 Cleared old data from sheet before appending new rows');
+    console.log('🧹 Cleared old data from sheet');
 
-    // --- Write product data ---
     const values = [
-      [
-        'Name',
-        'Variety',
-        'Code',
-        'Packing Code',
-        'Price',
-        'Image',
-        'Quantity',
-        'Farm Name',
-        'Characteristics',
-        'Helper',
-        'Time',
-      ],
+      ['Name', 'Variety', 'Code', 'Packing Code', 'Price', 'Image', 'Quantity', 'Farm Name', 'Characteristics', 'Helper', 'Time'],
       ...allProducts,
     ];
 
@@ -505,7 +495,6 @@ function formatRuntime(ms) {
 
     console.log('✅ Data saved to Google Sheet!');
 
-    // --- Final success status ---
     const endTime = Date.now();
     const runtimeMs = endTime - startTime;
     const runtimeText = formatRuntime(runtimeMs);
@@ -515,18 +504,16 @@ function formatRuntime(ms) {
       spreadsheetId: SPREADSHEET_ID,
       range: `_config!F13`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[`✅ ${lastRunTime} — ${runtimeText}`]],
-      },
+      requestBody: { values: [[`✅ ${lastRunTime} — ${runtimeText}`]] },
     });
 
     console.log(`🏁 Scraping completed! Runtime: ${runtimeText}`);
+
   } catch (err) {
     console.error('❌ Scraping failed:', err);
 
     const endTime = Date.now();
-    const runtimeMs = endTime - startTime;
-    const runtimeText = formatRuntime(runtimeMs);
+    const runtimeText = formatRuntime(endTime - startTime);
 
     try {
       await sheets.spreadsheets.values.update({
@@ -543,8 +530,6 @@ function formatRuntime(ms) {
 
     process.exitCode = 1;
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 })();
