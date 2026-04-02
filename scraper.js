@@ -227,9 +227,12 @@ function formatRuntime(ms) {
           // ignore
         }
 
-        const farmName = await product
-          .$eval('div[class*="root"] img', (el) => el.alt?.trim() || '')
-          .catch(() => '');
+       const farmName = await product
+  .$eval('div.MuiStack-root.css-uq0cf4', (el) => {
+    const textDiv = el.querySelector('div:last-child');
+    return textDiv ? textDiv.textContent.trim() : '';
+  })
+  .catch(() => '');
 
         const characteristics = [];
         try {
