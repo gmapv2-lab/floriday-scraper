@@ -27,6 +27,35 @@ function formatRuntime(ms) {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
+async function autoScroll(page) {
+  await page.evaluate(async () => {
+    await new Promise((resolve) => {
+      let lastHeight = 0;
+      let sameCount = 0;
+
+      const timer = setInterval(() => {
+        window.scrollBy(0, 700);
+
+        const currentHeight = document.body.scrollHeight;
+
+        if (currentHeight === lastHeight) {
+          sameCount++;
+        } else {
+          sameCount = 0;
+          lastHeight = currentHeight;
+        }
+
+        if (sameCount >= 5) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 400);
+    });
+  });
+
+  await page.waitForTimeout(2000);
+}
+
 (async () => {
   const startTime = Date.now();
 
@@ -39,10 +68,12 @@ function formatRuntime(ms) {
   }
 
   const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+
   const auth = new google.auth.GoogleAuth({
     credentials: serviceAccount,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
+
   const sheets = google.sheets({ version: 'v4', auth });
 
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
@@ -65,17 +96,18 @@ function formatRuntime(ms) {
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [['🟡 Scraping in progress...']] },
     });
+
     console.log('✅ Updated Status in Sheets to Scraping in Progress');
 
     browser = await firefox.launch({ headless: true });
+
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
     });
-    const page = await context.newPage();
 
+    const page = await context.newPage();
     page.setDefaultTimeout(120000);
 
-    // ---------------- LOGIN ----------------
     console.log('🔐 Opening login page...');
     await page.goto('https://idm.floriday.io/', { waitUntil: 'load' });
 
@@ -90,17 +122,16 @@ function formatRuntime(ms) {
 
     console.log('✅ Logged in successfully');
 
-    // ---------------- GO DIRECTLY TO FILTERED URL ----------------
     console.log('🌐 Opening filtered Floriday URL directly...');
-    await page.goto(FILTERED_URL, {
-      waitUntil: 'domcontentloaded',
-    });
+    await page.goto(FILTERED_URL, { waitUntil: 'domcontentloaded' });
 
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(5000);
 
-    // optional small fallback reload if Floriday loads partial state
+    console.log('Current scraping URL:', page.url());
+
     const pageText = await page.locator('body').innerText().catch(() => '');
+
     if (
       pageText.includes('Something went wrong') ||
       pageText.includes('No results') ||
@@ -114,12 +145,12 @@ function formatRuntime(ms) {
 
     console.log('✅ Filtered page loaded');
 
-    // ---------------- PAGE SIZE ----------------
     try {
       const pageSizeSelect = await page.$('select[class*="pageSizeDropDown"]');
+
       if (pageSizeSelect) {
         await pageSizeSelect.selectOption('96');
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(4000);
         console.log('✅ Items per page set to 96');
       } else {
         console.warn('⚠️ Page size control not found, continuing with default');
@@ -128,14 +159,16 @@ function formatRuntime(ms) {
       console.warn('⚠️ Could not set page size:', err.message);
     }
 
-    // ---------------- SCRAPE ----------------
     const allProducts = [];
+    const seenProducts = new Set();
     let pageNum = 1;
 
     while (true) {
       console.log(`⏳ Scraping page ${pageNum}...`);
+      console.log('Scraping URL:', page.url());
 
       let gridContainer = null;
+
       for (const sel of [
         'div.css-2qghvq-gridContainer',
         'div[class*="gridContainer"]',
@@ -148,7 +181,7 @@ function formatRuntime(ms) {
           console.log(`✅ Grid found using: ${sel}`);
           break;
         } catch {
-          // try next
+          // try next selector
         }
       }
 
@@ -165,12 +198,15 @@ function formatRuntime(ms) {
         { timeout: 30000 }
       ).catch(() => console.warn('⚠️ Timed out waiting for products'));
 
+      await autoScroll(page);
+
       let productHandles = await page.$$(`${gridContainer} > div:not([data-test])`);
+
       if (!productHandles.length) {
         productHandles = await page.$$(`${gridContainer} > div`);
       }
 
-      console.log(`📦 Products on this page: ${productHandles.length}`);
+      console.log(`📦 Products visible on this page: ${productHandles.length}`);
 
       for (const product of productHandles) {
         const img = await product
@@ -190,21 +226,26 @@ function formatRuntime(ms) {
         const variety = lines[1] || '';
         const code = lines[2] || '';
 
-const price = await product
-  .$eval('p.css-u8hob4', (el) => el.textContent.trim())
-  .catch(() => '');
-
-        const packingCode = await product
-          .$eval('div[style*="white-space: nowrap"] > div', (el) => {
-            return el.textContent.trim().split(' - ')[0];
-          })
+        const price = await product
+          .$eval('p.css-u8hob4', (el) => el.textContent.trim())
           .catch(() => '');
 
-        let quantity = '';
-        try {
-          const quantityText = await product.$eval('div.MuiBox-root.css-18biwo', (el) =>
+        const packingFullText = await product
+          .$eval('div[style*="white-space: nowrap"] > div', (el) =>
             el.textContent.trim()
-          );
+          )
+          .catch(() => '');
+
+        const packingCode = packingFullText
+          ? packingFullText.split(' - ')[0].trim()
+          : '';
+
+        let quantity = '';
+
+        try {
+          const quantityText = await product
+            .$eval('div.MuiBox-root.css-18biwo', (el) => el.textContent.trim())
+            .catch(() => packingFullText);
 
           let qtyMatch = quantityText.match(/×\s*(\d+)(?!.*×)/);
           let qty = qtyMatch ? qtyMatch[1] : '';
@@ -214,31 +255,31 @@ const price = await product
             qty = pcsMatch ? pcsMatch[1] : '';
           }
 
-          const priceText = await product
-            .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
-            .catch(() => '');
-
-          const priceOnly = priceText.replace('€', '').trim();
+          const priceOnly = price.replace('€', '').trim();
 
           if (priceOnly) {
             quantity = qty ? `${qty} * €${priceOnly}` : `€${priceOnly}`;
+          } else {
+            quantity = qty || '';
           }
         } catch {
-          // ignore
+          // ignore quantity error
         }
 
-       const farmName = await product
-  .$eval('div.MuiStack-root.css-uq0cf4', (el) => {
-    const textDiv = el.querySelector('div:last-child');
-    return textDiv ? textDiv.textContent.trim() : '';
-  })
-  .catch(() => '');
+        const farmName = await product
+          .$eval('div.MuiStack-root.css-uq0cf4', (el) => {
+            const textDiv = el.querySelector('div:last-child');
+            return textDiv ? textDiv.textContent.trim() : '';
+          })
+          .catch(() => '');
 
         const characteristics = [];
+
         try {
           const charSpans = await product.$$(
             'div[class*="characteristics"] div[class*="value"] span'
           );
+
           for (const span of charSpans) {
             const text = await span.evaluate((el) => el.textContent.trim());
             if (text) characteristics.push(text);
@@ -248,6 +289,7 @@ const price = await product
         }
 
         let helperValue = '';
+
         try {
           helperValue = await product.$eval(
             'div.MuiSelect-select.MuiSelect-standard.MuiInputBase-input.MuiInput-input',
@@ -271,6 +313,14 @@ const price = await product
 
         if (!helperValue) helperValue = 'N/A';
 
+        const uniqueKey = `${name}|${variety}|${code}|${packingCode}|${price}|${farmName}`;
+
+        if (seenProducts.has(uniqueKey)) {
+          continue;
+        }
+
+        seenProducts.add(uniqueKey);
+
         allProducts.push([
           name,
           variety,
@@ -286,37 +336,44 @@ const price = await product
         ]);
       }
 
-      console.log(`✅ Page ${pageNum} scraped (${productHandles.length} products)`);
+      console.log(`✅ Page ${pageNum} scraped`);
+      console.log(`📊 Total collected so far: ${allProducts.length}`);
 
-      // ---------------- NEXT PAGE ----------------
       const nextBtn = await page.$('button[aria-label="Go to next page"]');
+
       if (!nextBtn) {
         console.log('⏹ No next button — last page reached');
         break;
       }
 
       const disabled = await nextBtn.getAttribute('disabled');
-      if (disabled !== null) {
+      const ariaDisabled = await nextBtn.getAttribute('aria-disabled');
+
+      console.log('Next button disabled:', disabled);
+      console.log('Next button aria-disabled:', ariaDisabled);
+
+      if (disabled !== null || ariaDisabled === 'true') {
         console.log('⏹ Next button disabled — last page reached');
         break;
       }
 
       console.log(`➡️ Going to page ${pageNum + 1}...`);
+
       await nextBtn.click();
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(1500);
       await page.waitForLoadState('networkidle').catch(() => {});
-      await page.waitForTimeout(2500);
+      await page.waitForTimeout(3000);
 
       pageNum++;
     }
 
     console.log(`🎉 Total collected: ${allProducts.length} products`);
 
-    // ---------------- WRITE TO SHEET ----------------
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
       range: TARGET_SHEET_NAME,
     });
+
     console.log('🧹 Cleared old data from sheet');
 
     await sheets.spreadsheets.values.update({
