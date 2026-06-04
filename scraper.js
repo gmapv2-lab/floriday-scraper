@@ -190,9 +190,11 @@ function formatRuntime(ms) {
         const variety = lines[1] || '';
         const code = lines[2] || '';
 
-        const price = await product
-          .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
-          .catch(() => '');
+       const price = await product
+  .$eval('div.MuiStack-root.css-hp68mp p', (el) =>
+    el.textContent.trim()
+  )
+  .catch(() => '');
 
         const packingCode = await product
           .$eval('div[style*="white-space: nowrap"] > div', (el) => {
@@ -214,9 +216,11 @@ function formatRuntime(ms) {
             qty = pcsMatch ? pcsMatch[1] : '';
           }
 
-          const priceText = await product
-            .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
-            .catch(() => '');
+         const priceText = await product
+  .$eval('div.MuiStack-root.css-hp68mp p', (el) =>
+    el.textContent.trim()
+  )
+  .catch(() => '');
 
           const priceOnly = priceText.replace('€', '').trim();
 
