@@ -190,9 +190,9 @@ function formatRuntime(ms) {
         const variety = lines[1] || '';
         const code = lines[2] || '';
 
-        const price = await product
-          .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
-          .catch(() => '');
+const price = await product
+  .$eval('p.css-u8hob4', (el) => el.textContent.trim())
+  .catch(() => '');
 
         const packingCode = await product
           .$eval('div[style*="white-space: nowrap"] > div', (el) => {
