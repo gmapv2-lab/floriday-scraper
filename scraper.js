@@ -27,6 +27,14 @@ function formatRuntime(ms) {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
+async function getPrice(product) {
+  return await product
+    .$eval('div.MuiStack-root.css-hp68mp p, p.MuiTypography-body1', (el) =>
+      el.textContent.trim()
+    )
+    .catch(() => '');
+}
+
 (async () => {
   const startTime = Date.now();
 
@@ -65,7 +73,6 @@ function formatRuntime(ms) {
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [['🟡 Scraping in progress...']] },
     });
-    console.log('✅ Updated Status in Sheets to Scraping in Progress');
 
     browser = await firefox.launch({ headless: true });
     const context = await browser.newContext({
@@ -75,8 +82,6 @@ function formatRuntime(ms) {
 
     page.setDefaultTimeout(120000);
 
-    // ---------------- LOGIN ----------------
-    console.log('🔐 Opening login page...');
     await page.goto('https://idm.floriday.io/', { waitUntil: 'load' });
 
     await page.locator('input#identifier').fill(EMAIL);
@@ -88,47 +93,32 @@ function formatRuntime(ms) {
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(5000);
 
-    console.log('✅ Logged in successfully');
-
-    // ---------------- GO DIRECTLY TO FILTERED URL ----------------
-    console.log('🌐 Opening filtered Floriday URL directly...');
-    await page.goto(FILTERED_URL, {
-      waitUntil: 'domcontentloaded',
-    });
+    await page.goto(FILTERED_URL, { waitUntil: 'domcontentloaded' });
 
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(5000);
 
-    // optional small fallback reload if Floriday loads partial state
     const pageText = await page.locator('body').innerText().catch(() => '');
     if (
       pageText.includes('Something went wrong') ||
       pageText.includes('No results') ||
       pageText.trim().length < 50
     ) {
-      console.log('🔄 Initial page looked incomplete, reloading once...');
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.waitForLoadState('networkidle').catch(() => {});
       await page.waitForTimeout(5000);
     }
 
-    console.log('✅ Filtered page loaded');
-
-    // ---------------- PAGE SIZE ----------------
     try {
       const pageSizeSelect = await page.$('select[class*="pageSizeDropDown"]');
       if (pageSizeSelect) {
         await pageSizeSelect.selectOption('96');
         await page.waitForTimeout(3000);
-        console.log('✅ Items per page set to 96');
-      } else {
-        console.warn('⚠️ Page size control not found, continuing with default');
       }
     } catch (err) {
       console.warn('⚠️ Could not set page size:', err.message);
     }
 
-    // ---------------- SCRAPE ----------------
     const allProducts = [];
     let pageNum = 1;
 
@@ -145,11 +135,8 @@ function formatRuntime(ms) {
         try {
           await page.waitForSelector(sel, { timeout: 15000 });
           gridContainer = sel;
-          console.log(`✅ Grid found using: ${sel}`);
           break;
-        } catch {
-          // try next
-        }
+        } catch {}
       }
 
       if (!gridContainer) {
@@ -190,9 +177,7 @@ function formatRuntime(ms) {
         const variety = lines[1] || '';
         const code = lines[2] || '';
 
-        const price = await product
-          .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
-          .catch(() => '');
+        const price = await getPrice(product);
 
         const packingCode = await product
           .$eval('div[style*="white-space: nowrap"] > div', (el) => {
@@ -214,25 +199,20 @@ function formatRuntime(ms) {
             qty = pcsMatch ? pcsMatch[1] : '';
           }
 
-          const priceText = await product
-            .$eval('div.MuiBox-root.css-nicbzb', (el) => el.textContent.trim())
-            .catch(() => '');
-
+          const priceText = await getPrice(product);
           const priceOnly = priceText.replace('€', '').trim();
 
           if (priceOnly) {
             quantity = qty ? `${qty} * €${priceOnly}` : `€${priceOnly}`;
           }
-        } catch {
-          // ignore
-        }
+        } catch {}
 
-       const farmName = await product
-  .$eval('div.MuiStack-root.css-uq0cf4', (el) => {
-    const textDiv = el.querySelector('div:last-child');
-    return textDiv ? textDiv.textContent.trim() : '';
-  })
-  .catch(() => '');
+        const farmName = await product
+          .$eval('div.MuiStack-root.css-uq0cf4', (el) => {
+            const textDiv = el.querySelector('div:last-child');
+            return textDiv ? textDiv.textContent.trim() : '';
+          })
+          .catch(() => '');
 
         const characteristics = [];
         try {
@@ -243,9 +223,7 @@ function formatRuntime(ms) {
             const text = await span.evaluate((el) => el.textContent.trim());
             if (text) characteristics.push(text);
           }
-        } catch {
-          // ignore
-        }
+        } catch {}
 
         let helperValue = '';
         try {
@@ -253,9 +231,7 @@ function formatRuntime(ms) {
             'div.MuiSelect-select.MuiSelect-standard.MuiInputBase-input.MuiInput-input',
             (el) => el.innerText.trim()
           );
-        } catch {
-          // ignore
-        }
+        } catch {}
 
         if (!helperValue) {
           try {
@@ -264,9 +240,7 @@ function formatRuntime(ms) {
               const chip = el.querySelector('span.MuiChip-label')?.innerText || '';
               return chip ? `${main} (${chip})` : main;
             });
-          } catch {
-            // ignore
-          }
+          } catch {}
         }
 
         if (!helperValue) helperValue = 'N/A';
@@ -286,22 +260,12 @@ function formatRuntime(ms) {
         ]);
       }
 
-      console.log(`✅ Page ${pageNum} scraped (${productHandles.length} products)`);
-
-      // ---------------- NEXT PAGE ----------------
       const nextBtn = await page.$('button[aria-label="Go to next page"]');
-      if (!nextBtn) {
-        console.log('⏹ No next button — last page reached');
-        break;
-      }
+      if (!nextBtn) break;
 
       const disabled = await nextBtn.getAttribute('disabled');
-      if (disabled !== null) {
-        console.log('⏹ Next button disabled — last page reached');
-        break;
-      }
+      if (disabled !== null) break;
 
-      console.log(`➡️ Going to page ${pageNum + 1}...`);
       await nextBtn.click();
       await page.waitForTimeout(1000);
       await page.waitForLoadState('networkidle').catch(() => {});
@@ -310,14 +274,10 @@ function formatRuntime(ms) {
       pageNum++;
     }
 
-    console.log(`🎉 Total collected: ${allProducts.length} products`);
-
-    // ---------------- WRITE TO SHEET ----------------
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
       range: TARGET_SHEET_NAME,
     });
-    console.log('🧹 Cleared old data from sheet');
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
@@ -343,10 +303,7 @@ function formatRuntime(ms) {
       },
     });
 
-    console.log('✅ Data saved to Google Sheet!');
-
-    const endTime = Date.now();
-    const runtimeText = formatRuntime(endTime - startTime);
+    const runtimeText = formatRuntime(Date.now() - startTime);
     const lastRunTime = getUaeTimeFormatted();
 
     await sheets.spreadsheets.values.update({
