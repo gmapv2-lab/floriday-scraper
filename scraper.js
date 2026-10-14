@@ -228,7 +228,7 @@ const price = await product
         }
 
        const farmName = await product
-  .$eval('div.MuiStack-root.css-uq0cf4', (el) => {
+  .$eval('div.MuiStack-root.css-1wcitef', (el) => {
     const textDiv = el.querySelector('div:last-child');
     return textDiv ? textDiv.textContent.trim() : '';
   })
